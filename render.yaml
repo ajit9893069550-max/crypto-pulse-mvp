@@ -1,30 +1,34 @@
 # render.yaml (FINAL CORRECTED STRUCTURE)
 
-# 1. Service Definitions
 services:
   # --- A. Web Service (Flask API) ---
   - type: web
     name: crypto-pulse-api
     env: python
     branch: main
-    # The 'build' block must be indented under the service definition
-    build:
-      # The 'apt' block must be indented under 'build'
+    
+    # 'build:' must align exactly with 'name:', 'env:', 'branch:', etc.
+    build: 
+      # 'apt:' must be indented once under 'build:'
       apt:
+        # 'packages:' must be indented once under 'apt:'
         packages:
-          - libta-lib-dev # Indented further
-    buildCommand: pip install -r requirements.txt # Aligned with 'build' and 'startCommand'
-    startCommand: gunicorn web_api:app # Aligned with 'build' and 'buildCommand'
+          - libta-lib-dev # The actual package list
+          
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn web_api:app
 
   # --- B. Worker Service (Alert Engine) ---
   - type: worker
     name: alert-engine-worker
     env: python
     branch: main
-    # Repeat the structure for the worker
+    
+    # Repeat the exact structure for the worker
     build:
       apt:
         packages:
           - libta-lib-dev
+          
     buildCommand: pip install -r requirements.txt
     startCommand: python alert_engine.py
