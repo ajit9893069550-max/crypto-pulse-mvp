@@ -7,4 +7,4 @@ pandas
 psycopg2-binary
 python-telegram-bot
 python-dotenv  # For local testing
-talib
+TA-Lib
