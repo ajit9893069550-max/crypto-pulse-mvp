@@ -1,0 +1,10 @@
+ccxt
+Flask
+Flask-CORS
+gunicorn
+numpy
+pandas
+psycopg2-binary
+python-telegram-bot
+python-dotenv  # For local testing
+talib

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crypto Pulse Alert Management</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div class="dashboard-container">
+        
+        <aside class="sidebar">
+            <div class="search-bar">
+                <input type="text" placeholder="Search eg: btc, nifty, index fund, etc">
+            </div>
+            <div class="asset-list-header">
+                <h3>Default (11)</h3>
+                <a href="#" class="group-link">+ New group</a>
+            </div>
+            <div id="live-asset-list" class="asset-list">
+                <div class="asset-item">
+                    <span class="ticker">ETH/USDT</span>
+                    <span class="change negative">-3.23%</span>
+                    <span class="price" id="eth-price">3100</span>
+                </div>
+                <div class="asset-item">
+                    <span class="ticker">BTC/USDT</span>
+                    <span class="change positive">0.05%</span>
+                    <span class="price" id="btc-price">102300</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            
+            <header class="main-header">
+                <div class="logo">
+                    <span style="font-size: 24px;">Crypto Pulse</span>
+                </div>
+                <div class="nav-links">
+                    <a href="#">Dashboard</a>
+                    <a href="#">+ Alert</a>
+                    <a href="#">Hi Ajit</a>
+                </div>
+            </header>
+
+            <section class="main-alert-body"> 
+                
+                <div class="alert-panel-wrapper">
+                    <div class="greeting">
+                        <h1>Hi Ajit Pratap</h1>
+                    </div>
+                    <div class="alert-input-group">
+                        <input type="text" id="alertInput" placeholder="TYPE ALERT YOU WANT" class="alert-input">
+                        <button onclick="createAlertFromDashboard()" class="create-alert-btn">
+                            <span class="btn-icon">⚡</span> Create Alert 
+                        </button>
+                    </div>
+                    
+                    <div id="suggestionArea" class="suggestion-area">
+                        <p>💡 **Quick Examples:**</p>
+                        <div class="suggestion-list">
+                            <span class="suggestion-tag" onclick="useSuggestion('Alert if BTC drops below 60000')">Price Alert: BTC below 60000</span>
+                            <span class="suggestion-tag" onclick="useSuggestion('Notify when ETH 50 MA crosses 200 MA on the 4h chart')">MA Cross: ETH 50/200 4h</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <section class="alert-management-section">
+                    <div class="management-header">
+                        <h2>⚡ My Active Alerts</h2>
+                        <button onclick="fetchMyAlerts()" class="refresh-alerts-btn">Refresh List</button>
+                    </div>
+                    <table id="myAlertsTable">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Asset</th>
+                                <th>Type</th>
+                                <th>Timeframe</th>
+                                <th>Condition</th>
+                                <th>Status</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="alertsTableBody">
+                            </tbody>
+                    </table>
+                    <p id="noAlertsMessage" style="display:none; margin-top: 20px;">You currently have no active alerts.</p>
+                </section>
+            </section>
+
+        </main>
+    </div>
+
+    <script src="scripts.js"></script>
+</body>
+</html>
