@@ -7,14 +7,15 @@ services:
     env: python
     branch: main
     
-    # 'build:' must align exactly with 'name:', 'env:', 'branch:', etc.
+    # 'build' must be at the same indentation level as 'name', 'env', etc.
     build: 
-      # 'apt:' must be indented once under 'build:'
+      # 'apt' must be indented once under 'build'
       apt:
-        # 'packages:' must be indented once under 'apt:'
+        # 'packages' must be indented once under 'apt'
         packages:
           - libta-lib-dev # The actual package list
           
+    # buildCommand and startCommand MUST be at the same level as 'build' and 'name'
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn web_api:app
 
@@ -24,7 +25,7 @@ services:
     env: python
     branch: main
     
-    # Repeat the exact structure for the worker
+    # Repeat the structure for the worker
     build:
       apt:
         packages:
