@@ -1,0 +1,26 @@
+# render.yaml
+
+# 1. System Package Installation (apt)
+# This section tells Render to install the C library required by the Python TA-Lib package.
+apt:
+  packages:
+    - libta-lib-dev
+
+# 2. Service Definitions
+services:
+  # --- A. Web Service (Flask API) ---
+  - type: web
+    name: crypto-pulse-api
+    env: python
+    branch: main
+    # Build command remains simple, as system install is handled above
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn web_api:app
+
+  # --- B. Worker Service (Alert Engine) ---
+  - type: worker
+    name: alert-engine-worker
+    env: python
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python alert_engine.py
