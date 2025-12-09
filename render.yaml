@@ -1,10 +1,6 @@
-# render.yaml
+# render.yaml (CORRECTED STRUCTURE)
 
-# 1. System Package Installation (apt)
-# This section tells Render to install the C library required by the Python TA-Lib package.
-apt:
-  packages:
-    - libta-lib-dev
+# 1. NO TOP-LEVEL 'apt:' SECTION
 
 # 2. Service Definitions
 services:
@@ -13,7 +9,11 @@ services:
     name: crypto-pulse-api
     env: python
     branch: main
-    # Build command remains simple, as system install is handled above
+    # APT is now defined here, under 'build'
+    build:
+      apt:
+        packages:
+          - libta-lib-dev
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn web_api:app
 
@@ -22,5 +22,10 @@ services:
     name: alert-engine-worker
     env: python
     branch: main
+    # APT is defined here as well
+    build:
+      apt:
+        packages:
+          - libta-lib-dev
     buildCommand: pip install -r requirements.txt
     startCommand: python alert_engine.py
