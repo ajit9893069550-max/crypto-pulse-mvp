@@ -1,28 +1,27 @@
-# render.yaml (CORRECTED STRUCTURE)
+# render.yaml (FINAL CORRECTED STRUCTURE)
 
-# 1. NO TOP-LEVEL 'apt:' SECTION
-
-# 2. Service Definitions
+# 1. Service Definitions
 services:
   # --- A. Web Service (Flask API) ---
   - type: web
     name: crypto-pulse-api
     env: python
     branch: main
-    # APT is now defined here, under 'build'
+    # The 'build' block must be indented under the service definition
     build:
+      # The 'apt' block must be indented under 'build'
       apt:
         packages:
-          - libta-lib-dev
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn web_api:app
+          - libta-lib-dev # Indented further
+    buildCommand: pip install -r requirements.txt # Aligned with 'build' and 'startCommand'
+    startCommand: gunicorn web_api:app # Aligned with 'build' and 'buildCommand'
 
   # --- B. Worker Service (Alert Engine) ---
   - type: worker
     name: alert-engine-worker
     env: python
     branch: main
-    # APT is defined here as well
+    # Repeat the structure for the worker
     build:
       apt:
         packages:
