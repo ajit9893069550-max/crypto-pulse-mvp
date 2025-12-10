@@ -1,4 +1,4 @@
-# web_api.py
+# web_api.py - COMPLETE CODE
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS 
@@ -10,8 +10,8 @@ from datetime import datetime
 from bot_listener import (
     save_alert_to_db, 
     parse_alert_request,
-    fetch_user_alerts,   
-    deactivate_alert     
+    fetch_user_alerts,    
+    deactivate_alert      
 )
 
 # Set up basic logging
@@ -20,13 +20,25 @@ logger = logging.getLogger(__name__)
 
 # --- Flask App Initialization ---
 app = Flask(__name__)
+# Allow all origins for API endpoints
 CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+# --- 0. Root Route / Health Check (NEW ADDITION) ---
+@app.route('/')
+def index():
+    """Returns a simple status message to confirm the web service is alive."""
+    return jsonify({
+        "status": "OK", 
+        "service": "Crypto Pulse API is Running",
+        "timestamp": datetime.now().isoformat()
+    }), 200
 
 # --- Helper Function for JSON Serialization ---
 def default_serializer(obj):
     """Custom JSON serializer for objects not serializable by default json code"""
     if isinstance(obj, datetime):
         return obj.isoformat()
+    # Assuming the list logic was for a specific database return type
     if isinstance(obj, list) and len(obj) == 1:
         return obj[0]
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
@@ -79,7 +91,8 @@ def get_my_alerts(user_id):
 
     try:
         alerts = fetch_user_alerts(user_id)
-        json_alerts = json.dumps(alerts, default=default_serializer)
+        # Use custom serializer for datetime objects
+        json_alerts = json.dumps(alerts, default=default_serializer) 
         
         logger.info(f"Fetched {len(alerts)} active alerts for user {user_id}.")
         
@@ -118,5 +131,4 @@ def delete_alert():
 
 
 # --- PRODUCTION EXECUTION ---
-# The standard 'if __name__ == '__main__': app.run(...)' block is REMOVED.
-# The application is now run by Gunicorn using the command: gunicorn web_api:app
+# The application is run by Gunicorn using the command: gunicorn web_api:app
