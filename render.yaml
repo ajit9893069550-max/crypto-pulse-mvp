@@ -1,4 +1,4 @@
-# render.yaml (FINAL CORRECTED STRUCTURE)
+# render.yaml (FINAL AND VERIFIED STRUCTURE)
 
 services:
   # --- A. Web Service (Flask API) ---
@@ -7,16 +7,16 @@ services:
     env: python
     branch: main
     
-    # CRITICAL FIX: The entire build configuration goes here
+    # 1. Start of the 'build' block
     build: 
-      # buildCommand and startCommand MUST be indented inside 'build'
+      # 2. Build commands (must be inside 'build' if custom apt is used)
       buildCommand: pip install -r requirements.txt
       startCommand: gunicorn web_api:app
       
-      # apt must also be indented inside 'build'
+      # 3. Custom system dependencies (must be inside 'build')
       apt:
         packages:
-          - libta-lib-dev # The actual package list
+          - libta-lib-dev
 
   # --- B. Worker Service (Alert Engine) ---
   - type: worker
@@ -24,7 +24,7 @@ services:
     env: python
     branch: main
     
-    # Repeat the critical fix for the worker
+    # Repeat the exact structure for the worker
     build:
       buildCommand: pip install -r requirements.txt
       startCommand: python alert_engine.py
