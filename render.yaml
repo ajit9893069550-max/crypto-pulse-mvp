@@ -7,17 +7,16 @@ services:
     env: python
     branch: main
     
-    # 'build' must be at the same indentation level as 'name', 'env', etc.
+    # CRITICAL FIX: The entire build configuration goes here
     build: 
-      # 'apt' must be indented once under 'build'
+      # buildCommand and startCommand MUST be indented inside 'build'
+      buildCommand: pip install -r requirements.txt
+      startCommand: gunicorn web_api:app
+      
+      # apt must also be indented inside 'build'
       apt:
-        # 'packages' must be indented once under 'apt'
         packages:
           - libta-lib-dev # The actual package list
-          
-    # buildCommand and startCommand MUST be at the same level as 'build' and 'name'
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn web_api:app
 
   # --- B. Worker Service (Alert Engine) ---
   - type: worker
@@ -25,11 +24,11 @@ services:
     env: python
     branch: main
     
-    # Repeat the structure for the worker
+    # Repeat the critical fix for the worker
     build:
+      buildCommand: pip install -r requirements.txt
+      startCommand: python alert_engine.py
+      
       apt:
         packages:
           - libta-lib-dev
-          
-    buildCommand: pip install -r requirements.txt
-    startCommand: python alert_engine.py
