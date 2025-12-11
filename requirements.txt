@@ -8,3 +8,4 @@ psycopg2-binary
 python-telegram-bot
 python-dotenv  # For local testing
 TA-Lib
+Flask-JWT-Extended
