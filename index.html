@@ -53,11 +53,14 @@
                     </div>
                     <div class="alert-input-group">
                         <input type="text" id="alertInput" placeholder="TYPE ALERT YOU WANT" class="alert-input">
-                        <button onclick="createAlertFromDashboard()" class="create-alert-btn">
+                        
+                        <button id="createAlertButton" class="create-alert-btn">
                             <span class="btn-icon">⚡</span> Create Alert 
                         </button>
                     </div>
                     
+                    <div id="alertMessage" class="text-info" style="margin-top: 10px;"></div>
+
                     <div id="suggestionArea" class="suggestion-area">
                         <p>💡 **Quick Examples:**</p>
                         <div class="suggestion-list">
@@ -70,21 +73,22 @@
                 <section class="alert-management-section">
                     <div class="management-header">
                         <h2>⚡ My Active Alerts</h2>
-                        <button onclick="fetchMyAlerts()" class="refresh-alerts-btn">Refresh List</button>
+                        
+                        <button onclick="fetchAndDisplayAlerts()" class="refresh-alerts-btn">Refresh List</button>
                     </div>
                     <table id="myAlertsTable">
                         <thead>
                             <tr>
                                 <th>ID</th>
                                 <th>Asset</th>
-                                <th>Type</th>
                                 <th>Timeframe</th>
                                 <th>Condition</th>
                                 <th>Status</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
-                        <tbody id="alertsTableBody">
+                        
+                        <tbody id="alertsList">
                             </tbody>
                     </table>
                     <p id="noAlertsMessage" style="display:none; margin-top: 20px;">You currently have no active alerts.</p>
