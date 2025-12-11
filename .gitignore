@@ -1,0 +1,8 @@
+# Critical Secrets
+.env
+
+# Python Environment/Build Files
+__pycache__/
+*.pyc
+venv/
+*.whl

@@ -1,30 +1,22 @@
-# render.yaml (FINAL AND VERIFIED STRUCTURE)
-
 services:
-  # --- A. Web Service (Flask API) ---
   - type: web
     name: crypto-pulse-api
     env: python
     branch: main
     
-    # 1. Start of the 'build' block
     build: 
-      # 2. Build commands (must be inside 'build' if custom apt is used)
       buildCommand: pip install -r requirements.txt
       startCommand: gunicorn web_api:app
       
-      # 3. Custom system dependencies (must be inside 'build')
       apt:
         packages:
           - libta-lib-dev
 
-  # --- B. Worker Service (Alert Engine) ---
   - type: worker
     name: alert-engine-worker
     env: python
     branch: main
     
-    # Repeat the exact structure for the worker
     build:
       buildCommand: pip install -r requirements.txt
       startCommand: python alert_engine.py

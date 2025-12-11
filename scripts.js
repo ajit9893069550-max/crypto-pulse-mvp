@@ -1,5 +1,9 @@
 // scripts.js
 
+// --- GLOBAL CONFIGURATION (NEW ADDITION) ---
+const API_BASE_URL = 'https://crypto-pulse-mvp-1.onrender.com';
+const userId = 'f3a8d746-5295-4773-b663-3ff337a74372'; // <--- MUST MATCH THE ID BELOW
+
 // --- 1. CORE ALERT CREATION FUNCTION ---
 async function createAlertFromDashboard() {
     // 1. --- GET INPUT VALUES ---
@@ -7,9 +11,8 @@ async function createAlertFromDashboard() {
     
     // 2. --- USER IDENTIFICATION (CRITICAL: USE UUID) ---
     // NOTE: In a real app, this MUST come from secure session/auth storage.
-    // For testing, use a UUID that is successfully linked to your Telegram chat_id via /link.
-    // Example UUID: 5a6d36e0-94d0-459f-9e79-8812543e2e8e
-    const userId = 'f3a8d746-5295-4773-b663-3ff337a74372'; // <--- !!! REPLACE WITH A UUID !!!
+    // Ensure this userId is linked to your Telegram chat_id via /link command.
+    // const userId is defined globally above
 
     if (!alertPhrase) {
         alert('Please type the alert you want before clicking Create Alert.');
@@ -17,8 +20,8 @@ async function createAlertFromDashboard() {
     }
 
     try {
-        // 3. --- SEND POST REQUEST TO FLASK API ---
-        const response = await fetch('http://127.0.0.1:5000/api/create-alert', {
+        // 3. --- SEND POST REQUEST TO LIVE RENDER API ---
+        const response = await fetch(`${API_BASE_URL}/api/create-alert`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -43,7 +46,7 @@ async function createAlertFromDashboard() {
         }
     } catch (error) {
         console.error('Network or server error:', error);
-        alert('⚠️ Failed to connect to the alert creation server. Make sure your web_api.py is running on port 5000.');
+        alert('⚠️ Failed to connect to the live Render API. Check your internet connection.');
     }
 }
 
@@ -51,34 +54,35 @@ async function createAlertFromDashboard() {
 // --- 2. LIVE PRICE FETCHING (MOCK/EXAMPLE) ---
 
 function fetchAndDisplayLivePrices() {
-    // This is a mock function. Replace with real CCXT or WebSocket API calls.
+    // ... (rest of the function remains the same)
     const ethPrice = (3100 + Math.random() * 5 - 2.5).toFixed(2);
     const btcPrice = (102300 + Math.random() * 50 - 25).toFixed(2);
 
     const ethPriceEl = document.getElementById('eth-price');
     const btcPriceEl = document.getElementById('btc-price');
 
-    if (ethPriceEl) ethPriceEl.textContent = ethPrice;
-    if (btcPriceEl) btcPriceEl.textContent = btcPrice;
+    if (ethPriceEl) ethPriceEl.textContent = btcPrice; // BTC is usually the larger number
+    if (btcPriceEl) btcPriceEl.textContent = ethPrice; // ETH is usually the smaller number
 }
 
 
-// --- 3. ALERT MANAGEMENT (NEW IMPLEMENTATION) ---
+// --- 3. ALERT MANAGEMENT (UPDATED API URL) ---
 
-const userId = 'f3a8d746-5295-4773-b663-3ff337a74372'; // <--- MUST MATCH THE ID IN createAlertFromDashboard()
+// const userId is defined globally above
 
 async function fetchMyAlerts() {
     const alertsTableBody = document.getElementById('alertsTableBody');
-    if (!alertsTableBody) return; // Exit if the table body doesn't exist
+    if (!alertsTableBody) return; 
 
     // Clear previous results
     alertsTableBody.innerHTML = '<tr><td colspan="7">Fetching active alerts...</td></tr>';
     
     try {
-        const response = await fetch(`http://127.0.0.1:5000/api/my-alerts/${userId}`);
+        // UPDATED: Using API_BASE_URL constant
+        const response = await fetch(`${API_BASE_URL}/api/my-alerts/${userId}`);
         const alerts = await response.json();
 
-        alertsTableBody.innerHTML = ''; // Clear status message
+        alertsTableBody.innerHTML = ''; 
 
         if (alerts.length === 0) {
             alertsTableBody.innerHTML = '<tr><td colspan="7">You have no active alerts. Create a new one!</td></tr>';
@@ -88,7 +92,6 @@ async function fetchMyAlerts() {
         alerts.forEach(alert => {
             const row = alertsTableBody.insertRow();
             
-            // Extract the simple condition text from params (if available)
             const params = alert.params || {};
             const conditionDisplay = alert.condition_text || params.condition || 'N/A';
             
@@ -99,7 +102,6 @@ async function fetchMyAlerts() {
             row.insertCell(4).textContent = conditionDisplay;
             row.insertCell(5).textContent = alert.status;
             
-            // Action Cell (Delete Button)
             const actionCell = row.insertCell(6);
             const deleteButton = document.createElement('button');
             deleteButton.textContent = '❌ Delete';
@@ -110,7 +112,7 @@ async function fetchMyAlerts() {
 
     } catch (error) {
         console.error('Error fetching alerts:', error);
-        alertsTableBody.innerHTML = `<tr><td colspan="7" style="color:red;">Error loading alerts: ${error.message}. Is web_api.py running?</td></tr>`;
+        alertsTableBody.innerHTML = `<tr><td colspan="7" style="color:red;">Error loading alerts: ${error.message}. Is the Render API running?</td></tr>`;
     }
 }
 
@@ -120,7 +122,8 @@ async function deleteAlert(alertId) {
     }
 
     try {
-        const response = await fetch('http://127.0.0.1:5000/api/delete-alert', {
+        // UPDATED: Using API_BASE_URL constant
+        const response = await fetch(`${API_BASE_URL}/api/delete-alert`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -132,7 +135,6 @@ async function deleteAlert(alertId) {
 
         if (response.ok) {
             alert(`✅ Alert ID ${alertId} successfully deleted.`);
-            // Refresh the list to remove the deleted alert from the view
             fetchMyAlerts(); 
         } else {
             alert(`❌ ERROR deleting alert: ${result.error || 'Check API logs.'}`);
@@ -161,7 +163,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(fetchAndDisplayLivePrices, 5000);
     
     // 2. Alert fetching initialization
-    // IMPORTANT: Make sure the HTML element with id="alertsTableBody" exists!
     fetchMyAlerts(); 
     
     // Add event listener to the "Refresh List" button if it exists
