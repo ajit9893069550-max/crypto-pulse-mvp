@@ -1,173 +1,172 @@
 // scripts.js
 
 // --- GLOBAL CONFIGURATION (NEW ADDITION) ---
+// NOTE: Ensure this URL points to your Render Web Service (web_api.py).
+// The URL should be: https://YOUR-WEB-SERVICE-NAME.onrender.com
 const API_BASE_URL = 'https://crypto-pulse-mvp-1.onrender.com';
-const userId = 'f3a8d746-5295-4773-b663-3ff337a74372'; // <--- MUST MATCH THE ID BELOW
+
+// ⚠️ WARNING: These are placeholders until proper Login is implemented.
+const userId = 'f3a8d746-5295-4773-b663-3ff337a74372'; 
+const PLACEHOLDER_JWT_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NTQ0MjA4NywianRpIjoiN2Y1YWNhM2YtMjk3Mi00N2IwLTllMzUtZGZmOWFlYWYyMzhhIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6ImYzYThkNzQ2LTUyOTUtNDc3My1iNjYzLTNmZjMzN2E3NDM3MiIsIm5iZiI6MTc2NTQ0MjA4NywiY3NyZiI6IjJjYTI5NzlmLTY4YWQtNDZlMS1hZGIwLWE3MmI5YjI0MDhjNiIsImV4cCI6MTc2NTUyODQ4N30.5SnXXufA50GfTxBYCDqHPH3tPcUnMuYisQImoORbgU8'; // This is a mock/temporary JWT.
 
 // --- 1. CORE ALERT CREATION FUNCTION ---
 async function createAlertFromDashboard() {
     // 1. --- GET INPUT VALUES ---
     const alertPhrase = document.getElementById('alertInput').value; 
+    const messageElement = document.getElementById('alertMessage');
     
-    // 2. --- USER IDENTIFICATION (CRITICAL: USE UUID) ---
-    // NOTE: In a real app, this MUST come from secure session/auth storage.
-    // Ensure this userId is linked to your Telegram chat_id via /link command.
-    // const userId is defined globally above
+    // Clear previous message
+    messageElement.textContent = 'Sending request...';
+    messageElement.className = 'text-info';
 
     if (!alertPhrase) {
-        alert('Please type the alert you want before clicking Create Alert.');
+        messageElement.textContent = 'Please enter an alert phrase.';
+        messageElement.className = 'text-warning';
         return;
     }
 
     try {
-        // 3. --- SEND POST REQUEST TO LIVE RENDER API ---
+        // 2. --- MAKE API CALL ---
         const response = await fetch(`${API_BASE_URL}/api/create-alert`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Accept': 'application/json' 
+                // IMPORTANT: Pass the JWT for the protected route
+                'Authorization': `Bearer ${PLACEHOLDER_JWT_TOKEN}` 
             },
-            body: JSON.stringify({ 
-                user_id: userId,
-                alert_phrase: alertPhrase 
-            }),
+            body: JSON.stringify({
+                // Note: user_id is NOT needed here anymore, it's pulled from the JWT on the server
+                'alert_phrase': alertPhrase
+            })
         });
 
+        // 3. --- HANDLE RESPONSE ---
         const result = await response.json();
 
-        // 4. --- HANDLE API RESPONSE ---
-        if (response.status === 201) {
-            alert(`✅ Alert Created! Type: ${result.alert_type}.`);
+        if (response.ok) {
+            // Success (201 Created)
+            messageElement.textContent = `✅ Alert created successfully! Type: ${result.alert_type}`;
+            messageElement.className = 'text-success';
+            // Clear the input and reload alerts list
             document.getElementById('alertInput').value = ''; 
-            // Refresh the list immediately after successful creation
-            fetchMyAlerts(); 
+            await fetchAndDisplayAlerts(); 
         } else {
-            alert(`❌ ERROR: ${result.error}\nDetails: ${result.details || 'Check the API logs.'}`);
+            // API returned an error (400, 500, etc.)
+            let errorMessage = result.error || 'Unknown API Error.';
+            if (response.status === 401) {
+                errorMessage = "Authentication failed. Please log in again.";
+            } else if (result.details) {
+                errorMessage += ` (Details: ${result.details})`;
+            }
+            messageElement.textContent = `❌ Error: ${errorMessage}`;
+            messageElement.className = 'text-danger';
         }
+
     } catch (error) {
-        console.error('Network or server error:', error);
-        alert('⚠️ Failed to connect to the live Render API. Check your internet connection.');
+        // Network or connection error (e.g., API is offline/asleep)
+        console.error('Network or Fetch Error:', error);
+        
+        // This is the specific error when the Render service is sleeping
+        messageElement.textContent = `⚠️ Failed to connect to the alert creation server. Is the Web API service running at ${API_BASE_URL}? (Error: ${error.message})`;
+        messageElement.className = 'text-danger';
     }
 }
 
-
-// --- 2. LIVE PRICE FETCHING (MOCK/EXAMPLE) ---
-
-function fetchAndDisplayLivePrices() {
-    // ... (rest of the function remains the same)
-    const ethPrice = (3100 + Math.random() * 5 - 2.5).toFixed(2);
-    const btcPrice = (102300 + Math.random() * 50 - 25).toFixed(2);
-
-    const ethPriceEl = document.getElementById('eth-price');
-    const btcPriceEl = document.getElementById('btc-price');
-
-    if (ethPriceEl) ethPriceEl.textContent = btcPrice; // BTC is usually the larger number
-    if (btcPriceEl) btcPriceEl.textContent = ethPrice; // ETH is usually the smaller number
-}
-
-
-// --- 3. ALERT MANAGEMENT (UPDATED API URL) ---
-
-// const userId is defined globally above
-
-async function fetchMyAlerts() {
-    const alertsTableBody = document.getElementById('alertsTableBody');
-    if (!alertsTableBody) return; 
-
-    // Clear previous results
-    alertsTableBody.innerHTML = '<tr><td colspan="7">Fetching active alerts...</td></tr>';
+// --- 2. CORE ALERT FETCHING FUNCTION ---
+async function fetchAndDisplayAlerts() {
+    const alertsList = document.getElementById('alertsList');
+    alertsList.innerHTML = '<tr><td colspan="4">Loading alerts...</td></tr>';
     
     try {
-        // UPDATED: Using API_BASE_URL constant
-        const response = await fetch(`${API_BASE_URL}/api/my-alerts/${userId}`);
+        // Fetch alerts for the hardcoded user ID
+        const response = await fetch(`${API_BASE_URL}/api/my-alerts`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                // Pass the JWT for the protected route
+                'Authorization': `Bearer ${PLACEHOLDER_JWT_TOKEN}` 
+            }
+        });
+        
+        // Handle token expiration/bad token first
+        if (response.status === 401) {
+             alertsList.innerHTML = '<tr><td colspan="4" class="text-danger">❌ Authentication Failed. Please Log In.</td></tr>';
+             return;
+        }
+
+        if (!response.ok) {
+            const errorResult = await response.json();
+             alertsList.innerHTML = `<tr><td colspan="4" class="text-danger">❌ Failed to fetch alerts: ${errorResult.error || 'Server error'}</td></tr>`;
+             return;
+        }
+        
         const alerts = await response.json();
-
-        alertsTableBody.innerHTML = ''; 
-
+        
         if (alerts.length === 0) {
-            alertsTableBody.innerHTML = '<tr><td colspan="7">You have no active alerts. Create a new one!</td></tr>';
+            alertsList.innerHTML = '<tr><td colspan="4">No active alerts found. Create one above!</td></tr>';
             return;
         }
 
+        alertsList.innerHTML = ''; // Clear 'Loading' message
+        
         alerts.forEach(alert => {
-            const row = alertsTableBody.insertRow();
+            const row = alertsList.insertRow();
+            // Use .id if your database returns a field named 'id'
+            row.insertCell(0).textContent = alert.alert_id || alert.id || 'N/A'; 
+            row.insertCell(1).textContent = `${alert.asset} ${alert.operator} ${alert.target_value}`;
+            row.insertCell(2).textContent = alert.created_at ? new Date(alert.created_at).toLocaleString() : 'N/A';
             
-            const params = alert.params || {};
-            const conditionDisplay = alert.condition_text || params.condition || 'N/A';
-            
-            row.insertCell(0).textContent = alert.id;
-            row.insertCell(1).textContent = alert.asset;
-            row.insertCell(2).textContent = alert.timeframe;
-            row.insertCell(3).textContent = alert.alert_type.replace('_', ' ');
-            row.insertCell(4).textContent = conditionDisplay;
-            row.insertCell(5).textContent = alert.status;
-            
-            const actionCell = row.insertCell(6);
+            const deleteCell = row.insertCell(3);
             const deleteButton = document.createElement('button');
-            deleteButton.textContent = '❌ Delete';
-            deleteButton.className = 'delete-btn';
-            deleteButton.onclick = () => deleteAlert(alert.id);
-            actionCell.appendChild(deleteButton);
+            deleteButton.textContent = 'Delete';
+            deleteButton.className = 'btn btn-sm btn-danger';
+            deleteButton.onclick = () => deleteAlert(alert.alert_id || alert.id);
+            deleteCell.appendChild(deleteButton);
         });
 
     } catch (error) {
         console.error('Error fetching alerts:', error);
-        alertsTableBody.innerHTML = `<tr><td colspan="7" style="color:red;">Error loading alerts: ${error.message}. Is the Render API running?</td></tr>`;
+        alertsList.innerHTML = '<tr><td colspan="4" class="text-danger">⚠️ Connection Error. The Web API is likely sleeping. Refresh in 30 seconds.</td></tr>';
     }
 }
 
+// --- 3. DELETE ALERT FUNCTION ---
 async function deleteAlert(alertId) {
-    if (!confirm(`Are you sure you want to delete Alert ID ${alertId}?`)) {
-        return;
-    }
+    if (!confirm(`Are you sure you want to delete Alert ID ${alertId}?`)) return;
 
     try {
-        // UPDATED: Using API_BASE_URL constant
         const response = await fetch(`${API_BASE_URL}/api/delete-alert`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${PLACEHOLDER_JWT_TOKEN}` 
             },
-            body: JSON.stringify({ alert_id: alertId }),
+            body: JSON.stringify({ 'alert_id': alertId })
         });
 
         const result = await response.json();
 
         if (response.ok) {
-            alert(`✅ Alert ID ${alertId} successfully deleted.`);
-            fetchMyAlerts(); 
+            alert(result.message);
+            await fetchAndDisplayAlerts(); // Refresh the list
         } else {
-            alert(`❌ ERROR deleting alert: ${result.error || 'Check API logs.'}`);
+            alert(`Error deleting alert: ${result.error || 'Unknown error'}`);
         }
     } catch (error) {
-        console.error('Network or server error during deletion:', error);
-        alert('⚠️ Failed to connect to the deletion server.');
+        console.error('Error deleting alert:', error);
+        alert('Network error while attempting to delete alert.');
     }
 }
 
-
-// --- 4. SUGGESTION INPUT LOGIC ---
-
-function useSuggestion(suggestionText) {
-    const alertInput = document.getElementById('alertInput');
-    alertInput.value = suggestionText;
-    alertInput.focus();
-}
-
-
-// --- 5. INITIALIZATION ---
-
+// --- 4. INITIALIZATION ---
+// Run when the page loads
 document.addEventListener('DOMContentLoaded', () => {
-    // 1. Price fetching initialization
-    fetchAndDisplayLivePrices();
-    setInterval(fetchAndDisplayLivePrices, 5000);
-    
-    // 2. Alert fetching initialization
-    fetchMyAlerts(); 
-    
-    // Add event listener to the "Refresh List" button if it exists
-    const refreshButton = document.getElementById('refreshAlertsList');
-    if (refreshButton) {
-        refreshButton.addEventListener('click', fetchMyAlerts);
+    // Add event listener to the create button
+    const createButton = document.getElementById('createAlertButton');
+    if (createButton) {
+        createButton.addEventListener('click', createAlertFromDashboard);
     }
+    
+    // Load existing alerts on startup
+    fetchAndDisplayAlerts();
 });
