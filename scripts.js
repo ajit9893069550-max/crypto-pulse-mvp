@@ -27,8 +27,7 @@ function saveToken(token) {
  */
 function logout() {
     localStorage.removeItem(TOKEN_STORAGE_KEY);
-    // After logging out, redirect the user to a login page
-    // For now, we'll just reload the current page.
+    // Reloads the page, which will trigger the UI update to show 'Login'
     location.reload(); 
 }
 
@@ -41,16 +40,72 @@ function updateAuthStatusUI() {
     const greetingMessage = document.getElementById('greetingMessage');
     const alertCreationSection = document.getElementById('alertCreationSection');
     
-    if (token) {
-        // User is logged in
-        authStatusLink.innerHTML = `<a href="#" onclick="logout()">Logout</a>`;
-        greetingMessage.textContent = 'Welcome Back!';
-        alertCreationSection.style.display = 'block'; // Show creation section
-    } else {
-        // User is not logged in
-        authStatusLink.innerHTML = `<a href="login.html">Login</a>`; 
-        greetingMessage.textContent = 'Please Log In';
-        alertCreationSection.style.display = 'none'; // Hide creation section
+    if (authStatusLink) {
+        if (token) {
+            // User is logged in
+            authStatusLink.innerHTML = `<a href="#" onclick="logout()">Logout</a>`;
+            if (greetingMessage) greetingMessage.textContent = 'Welcome Back, Ajit!';
+            if (alertCreationSection) alertCreationSection.style.display = 'block'; // Show creation section
+        } else {
+            // User is not logged in
+            authStatusLink.innerHTML = `<a href="login.html">Login</a>`; 
+            if (greetingMessage) greetingMessage.textContent = 'Please Log In';
+            if (alertCreationSection) alertCreationSection.style.display = 'none'; // Hide creation section
+        }
+    }
+}
+
+// --- NEW: LOGIN FUNCTION (Used by login.html) ---
+async function handleLogin() {
+    const email = document.getElementById('loginEmail')?.value;
+    const password = document.getElementById('loginPassword')?.value;
+    const messageElement = document.getElementById('loginMessage');
+    
+    if (!email || !password) {
+        if (messageElement) {
+             messageElement.textContent = 'Please enter both email and password.';
+             messageElement.className = 'text-warning';
+        }
+        return;
+    }
+    
+    if (messageElement) messageElement.textContent = 'Logging in...';
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            // SUCCESS! Save the token and redirect to the dashboard.
+            saveToken(result.access_token);
+            if (messageElement) {
+                messageElement.textContent = 'Login successful! Redirecting...';
+                messageElement.className = 'text-success';
+            }
+            
+            // Redirect to your main dashboard page
+            window.location.href = 'index.html'; 
+
+        } else {
+            // Login failed (e.g., incorrect credentials)
+            let errorMessage = result.error || 'Invalid credentials';
+            if (messageElement) {
+                messageElement.textContent = `❌ Login Failed: ${errorMessage}`;
+                messageElement.className = 'text-danger';
+            }
+        }
+
+    } catch (error) {
+        console.error('Network or Fetch Error:', error);
+        if (messageElement) {
+            messageElement.textContent = '⚠️ Failed to connect to the API.';
+            messageElement.className = 'text-danger';
+        }
     }
 }
 
@@ -66,17 +121,20 @@ async function createAlertFromDashboard() {
     const alertPhrase = document.getElementById('alertInput').value; 
     const messageElement = document.getElementById('alertMessage'); 
     
-    messageElement.textContent = 'Sending request...';
-    messageElement.className = 'text-info';
+    if (messageElement) {
+        messageElement.textContent = 'Sending request...';
+        messageElement.className = 'text-info';
+    }
 
     if (!alertPhrase) {
-        messageElement.textContent = 'Please enter an alert phrase.';
-        messageElement.className = 'text-warning';
+        if (messageElement) {
+            messageElement.textContent = 'Please enter an alert phrase.';
+            messageElement.className = 'text-warning';
+        }
         return;
     }
 
     try {
-        // Use the dynamic token from getToken()
         const response = await fetch(`${API_BASE_URL}/api/create-alert`, {
             method: 'POST',
             headers: {
@@ -91,8 +149,10 @@ async function createAlertFromDashboard() {
         const result = await response.json();
 
         if (response.ok) {
-            messageElement.textContent = `✅ Alert created successfully! Type: ${result.alert_type}`;
-            messageElement.className = 'text-success';
+            if (messageElement) {
+                messageElement.textContent = `✅ Alert created successfully! Type: ${result.alert_type}`;
+                messageElement.className = 'text-success';
+            }
             document.getElementById('alertInput').value = ''; 
             await fetchAndDisplayAlerts(); 
         } else {
@@ -103,14 +163,18 @@ async function createAlertFromDashboard() {
             } else if (result.details) {
                 errorMessage += ` (Details: ${result.details})`;
             }
-            messageElement.textContent = `❌ Error: ${errorMessage}`;
-            messageElement.className = 'text-danger';
+            if (messageElement) {
+                messageElement.textContent = `❌ Error: ${errorMessage}`;
+                messageElement.className = 'text-danger';
+            }
         }
 
     } catch (error) {
         console.error('Network or Fetch Error:', error);
-        messageElement.textContent = `⚠️ Failed to connect to the server. Is the Web API service running at ${API_BASE_URL}? (Error: ${error.message})`;
-        messageElement.className = 'text-danger';
+        if (messageElement) {
+            messageElement.textContent = `⚠️ Failed to connect to the server. Is the Web API service running at ${API_BASE_URL}? (Error: ${error.message})`;
+            messageElement.className = 'text-danger';
+        }
     }
 }
 
@@ -121,14 +185,13 @@ async function fetchAndDisplayAlerts() {
     
     // Check if user is logged in before attempting fetch
     if (!token) {
-        alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">❌ Not Logged In. Log in to manage alerts.</td></tr>';
+        if (alertsList) alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">❌ Not Logged In. Log in to manage alerts.</td></tr>';
         return;
     }
 
-    alertsList.innerHTML = '<tr><td colspan="6">Loading alerts...</td></tr>'; 
+    if (alertsList) alertsList.innerHTML = '<tr><td colspan="6">Loading alerts...</td></tr>'; 
     
     try {
-        // Use the dynamic token from getToken()
         const response = await fetch(`${API_BASE_URL}/api/my-alerts`, {
             method: 'GET',
             headers: {
@@ -138,25 +201,23 @@ async function fetchAndDisplayAlerts() {
         });
         
         if (response.status === 401 || response.status === 422) {
-             alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">❌ Authentication Failed. Token is expired or invalid. Please re-login.</td></tr>';
+             if (alertsList) alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">❌ Authentication Failed. Token is expired or invalid. Please re-login.</td></tr>';
              logout(); // Token failed verification, force logout
              return;
         }
 
         if (!response.ok) {
             const errorResult = await response.json();
-             alertsList.innerHTML = `<tr><td colspan="6" class="text-danger">❌ Failed to fetch alerts: ${errorResult.error || 'Server error'}</td></tr>`;
+             if (alertsList) alertsList.innerHTML = `<tr><td colspan="6" class="text-danger">❌ Failed to fetch alerts: ${errorResult.error || 'Server error'}</td></tr>`;
              return;
         }
         
         const alerts = await response.json();
         
-        // ... (Alert display logic remains the same for brevity) ...
-
-        alertsList.innerHTML = ''; // Clear 'Loading' message
+        if (alertsList) alertsList.innerHTML = ''; // Clear 'Loading' message
         
         if (alerts.length === 0) {
-            alertsList.innerHTML = '<tr><td colspan="6">No active alerts found. Create one above!</td></tr>';
+            if (alertsList) alertsList.innerHTML = '<tr><td colspan="6">No active alerts found. Create one above!</td></tr>';
             return;
         }
         
@@ -188,13 +249,14 @@ async function fetchAndDisplayAlerts() {
             const deleteButton = document.createElement('button');
             deleteButton.textContent = 'Delete';
             deleteButton.className = 'btn btn-sm btn-danger';
-            deleteButton.onclick = () => deleteAlert(alert.id);
+            // Note: alert.id is safer than alert.alert_id based on previous issues
+            deleteButton.onclick = () => deleteAlert(alert.id); 
             deleteCell.appendChild(deleteButton);
         });
 
     } catch (error) {
         console.error('Error fetching alerts:', error);
-        alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">⚠️ Connection Error. Check your browser console.</td></tr>';
+        if (alertsList) alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">⚠️ Connection Error. The API is likely sleeping.</td></tr>';
     }
 }
 
@@ -252,6 +314,16 @@ document.addEventListener('DOMContentLoaded', () => {
         createButton.addEventListener('click', createAlertFromDashboard);
     }
     
-    // 3. Load existing alerts on startup
-    fetchAndDisplayAlerts();
+    // 3. Load existing alerts on startup (only if index.html is loaded)
+    const alertsList = document.getElementById('alertsList');
+    if (alertsList) {
+        fetchAndDisplayAlerts();
+    }
+    
+    // 4. If we are on the login page, we might want to attach event listeners 
+    //    if the button wasn't using onclick=""
+    const loginButton = document.querySelector('.login-btn');
+    if (loginButton && !loginButton.onclick) {
+        loginButton.addEventListener('click', handleLogin);
+    }
 });
