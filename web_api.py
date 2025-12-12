@@ -113,7 +113,7 @@ def deactivate_alert(alert_id, user_id, status='DELETED'):
     return len(response.data) > 0 # Returns True if a row was updated
     
 # =================================================================
-#                 API ROUTES
+#                 API ROUTES
 # =================================================================
 
 # --- 0. Root Route / Health Check ---
@@ -136,19 +136,20 @@ def register():
         return jsonify({"error": "Email and password are required."}), 400
 
     try:
-        # Supabase Auth: Creates the user in auth.users table
+        # --- FIX: Using the 'credentials' dictionary for sign_up ---
         response = supabase.auth.sign_up(
-              email = email,
-              password =password   
-            # options={'data': {'telegram_user_id': None}} # Initialize custom metadata
+            credentials={
+                'email': email,
+                'password': password
+            }
         )
         # If successful, response.user contains the UUID
         if response.user:
-             # NOTE: You should have an RLS policy and trigger to auto-create the 'profiles' row here.
+            # NOTE: You should have an RLS policy and trigger to auto-create the 'profiles' row here.
             return jsonify({"message": "User registered successfully! Check email for confirmation.", "user_id": response.user.id}), 201
         
     except AuthApiError as e:
-         return jsonify({"error": f"Registration failed: {e.message}"}), 409
+        return jsonify({"error": f"Registration failed: {e.message}"}), 409
     except Exception as e:
         logger.error(f"Error during registration: {e}")
         return jsonify({"error": "Internal server error during registration.", "details": str(e)}), 500
@@ -165,8 +166,13 @@ def login():
         return jsonify({"error": "Email and password are required."}), 400
     
     try:
-        # Supabase Auth: Verifies credentials
-        response = supabase.auth.sign_in_with_password(email=email, password=password)
+        # --- FIX: Using the 'credentials' dictionary for sign_in_with_password ---
+        response = supabase.auth.sign_in_with_password(
+            credentials={
+                'email': email,
+                'password': password
+            }
+        )
         
         if response.user:
             # Create the tokens using Flask-JWT-Extended
