@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crypto Pulse Alert Management</title>
     <link rel="stylesheet" href="styles.css">
-</head>
+    </head>
 <body>
 
     <div class="dashboard-container">
@@ -41,7 +41,8 @@
                 <div class="nav-links">
                     <a href="#">Dashboard</a>
                     <a href="#">+ Alert</a>
-                    <a href="#">Hi Ajit</a>
+                    <span id="authStatusLink">
+                        </span>
                 </div>
             </header>
 
@@ -49,31 +50,33 @@
                 
                 <div class="alert-panel-wrapper">
                     <div class="greeting">
-                        <h1>Hi Ajit Pratap</h1>
-                    </div>
-                    <div class="alert-input-group">
-                        <input type="text" id="alertInput" placeholder="TYPE ALERT YOU WANT" class="alert-input">
-                        
-                        <button id="createAlertButton" class="create-alert-btn">
-                            <span class="btn-icon">⚡</span> Create Alert 
-                        </button>
+                        <h1 id="greetingMessage">Hi Ajit Pratap</h1>
                     </div>
                     
-                    <div id="alertMessage" class="text-info" style="margin-top: 10px;"></div>
+                    <div id="alertCreationSection" style="display: none;">
+                        <div class="alert-input-group">
+                            <input type="text" id="alertInput" placeholder="TYPE ALERT YOU WANT" class="alert-input">
+                            
+                            <button id="createAlertButton" class="create-alert-btn">
+                                <span class="btn-icon">⚡</span> Create Alert 
+                            </button>
+                        </div>
+                        
+                        <div id="alertMessage" class="text-info" style="margin-top: 10px;"></div>
 
-                    <div id="suggestionArea" class="suggestion-area">
-                        <p>💡 **Quick Examples:**</p>
-                        <div class="suggestion-list">
-                            <span class="suggestion-tag" onclick="useSuggestion('Alert if BTC drops below 60000')">Price Alert: BTC below 60000</span>
-                            <span class="suggestion-tag" onclick="useSuggestion('Notify when ETH 50 MA crosses 200 MA on the 4h chart')">MA Cross: ETH 50/200 4h</span>
+                        <div id="suggestionArea" class="suggestion-area">
+                            <p>💡 **Quick Examples:**</p>
+                            <div class="suggestion-list">
+                                <span class="suggestion-tag" onclick="useSuggestion('BTC > 60000')">Price Alert: BTC above 60000</span>
+                                <span class="suggestion-tag" onclick="useSuggestion('Golden Cross on ETH 4H')">MA Cross: Golden Cross on ETH 4H</span>
+                            </div>
                         </div>
                     </div>
-                </div>
+                    </div>
                 
                 <section class="alert-management-section">
                     <div class="management-header">
                         <h2>⚡ My Active Alerts</h2>
-                        
                         <button onclick="fetchAndDisplayAlerts()" class="refresh-alerts-btn">Refresh List</button>
                     </div>
                     <table id="myAlertsTable">
@@ -89,7 +92,7 @@
                         </thead>
                         
                         <tbody id="alertsList">
-                            </tbody>
+                             </tbody>
                     </table>
                     <p id="noAlertsMessage" style="display:none; margin-top: 20px;">You currently have no active alerts.</p>
                 </section>
