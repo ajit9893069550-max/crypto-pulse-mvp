@@ -1,66 +1,133 @@
-# web_api.py - COMPLETE CODE (UPDATED for Authentication and Linking)
-
-from flask import Flask, request, jsonify
-from flask_cors import CORS 
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, JWTManager
+import re
+import os
 import json
 import logging
 from datetime import datetime, timedelta
-
-# Import the necessary functions from bot_listener.py and a new database connector
-from bot_listener import (
-    save_alert_to_db, 
-    parse_alert_request,
-    fetch_user_alerts,      
-    deactivate_alert      
-)
-
-# NOTE: This is a placeholder import. You will need to create a new file 
-# with functions like register_user, verify_user, link_telegram_id, etc.
-# from database.auth_db_connector import (
-#     register_user, verify_user, save_telegram_token, get_chat_id_by_token, delete_telegram_token
-# )
+from flask import Flask, request, jsonify
+from flask_cors import CORS 
+from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, JWTManager
+from supabase import create_client, Client
+from gotrue.errors import AuthApiError
 
 # --- CONFIGURATION & INITIALIZATION ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- Supabase Configuration ---
+# BEST PRACTICE: Use environment variables in production (e.g., on Render)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", 'https://eblmnwfnhjlvkkevgqeh.supabase.co')
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVibG1ud2ZuaGpsdmtrZXZncWVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyMTAzOTgsImV4cCI6MjA4MDc4NjM5OH0.7i_Vk6bnMgNez1lQpFMGCjrQ6OsFATl2BWSOZ5Yb1zI')
+
+if SUPABASE_URL == 'https://eblmnwfnhjlvkkevgqeh.supabase.co':
+    logger.warning("Supabase URL is a placeholder. UPDATE YOUR CREDENTIALS!")
+
+try:
+    # Initialize the Supabase Client
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+except Exception as e:
+    logger.error(f"Failed to initialize Supabase client: {e}")
+    # The app will likely fail to start if the client cannot be created
+
 app = Flask(__name__)
 
 # --- JWT Configuration ---
-# NOTE: Replace 'super-secret-key' with a strong, random key in production!
-app.config["JWT_SECRET_KEY"] = "super-secret-key-replace-me"
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "super-secret-key-change-me") # CHANGE ME!
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
 jwt = JWTManager(app)
 
 # Allow all origins for API endpoints
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# --- 0. Root Route / Health Check ---
-@app.route('/')
-def index():
-    """Returns a simple status message to confirm the web service is alive."""
-    return jsonify({
-        "status": "OK", 
-        "service": "Crypto Pulse API is Running",
-        "timestamp": datetime.now().isoformat()
-    }), 200
-
-# --- Helper Function for JSON Serialization ---
+# --- Helper Functions ---
 def default_serializer(obj):
     """Custom JSON serializer for objects not serializable by default json code"""
     if isinstance(obj, datetime):
         return obj.isoformat()
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
+def parse_alert_phrase(phrase):
+    """
+    Parses a plain English phrase into structured alert data, 
+    handling PRICE_TARGET, GOLDEN_CROSS, and DEATH_CROSS (Goal 1).
+    """
+    phrase = phrase.upper().strip()
+    
+    # 1. Check for Complex MA Cross Alerts (50 MA / 200 MA)
+    if 'CROSS' in phrase:
+        if 'GOLDEN' in phrase:
+            sub_type = 'GOLDEN_CROSS'
+        elif 'DEATH' in phrase:
+            sub_type = 'DEATH_CROSS'
+        else:
+            raise ValueError("Crossover alert must specify 'Golden Cross' or 'Death Cross'.")
+            
+        # Regex to find asset (e.g., BTC, ETH) and timeframe (e.g., 1D, 4H)
+        match = re.search(r'(BTC|ETH|SOL|LTC|BNB|ADA|XRP)\s*.*?(\d+[HDWM])', phrase)
+        
+        if match:
+            asset = match.group(1)
+            timeframe = match.group(2)
+            
+            return {
+                'alert_type': sub_type, 
+                'asset': asset, 
+                'timeframe': timeframe, 
+                'operator': None, 
+                'target_value': None
+            }
+        else:
+            raise ValueError("Crossover alert requires an asset (e.g., BTC) and a timeframe (e.g., 1D).")
+            
+    # 2. Check for Simple Price Alerts
+    match = re.search(r'(BTC|ETH|SOL|LTC|BNB|ADA|XRP)\s*([<>])\s*([\d,.]+)', phrase)
+    if match:
+        asset = match.group(1)
+        operator = match.group(2)
+        target_value = float(match.group(3).replace(',', ''))
+        
+        return {
+            'alert_type': 'PRICE_TARGET', 
+            'asset': asset, 
+            'operator': operator, 
+            'target_value': target_value, 
+            'timeframe': None
+        }
+    
+    raise ValueError("Invalid alert format. Please use: 'BTC > 65000' or 'Golden Cross on ETH 4H'.")
+
+# --- Database Helper Functions (Using Supabase) ---
+
+def fetch_user_alerts(user_id):
+    """Fetches ACTIVE alerts from the database for the given user_id."""
+    # Ensure RLS policy allows this operation for the 'authenticated' role
+    response = supabase.table('alerts').select('*').eq('user_id', user_id).eq('status', 'ACTIVE').execute()
+    return response.data
+
+def deactivate_alert(alert_id, user_id, status='DELETED'):
+    """Deactivates alert after verifying ownership."""
+    response = supabase.table('alerts').update({
+        'status': status, 
+        'updated_at': datetime.now().isoformat()
+    }).eq('id', alert_id).eq('user_id', user_id).execute()
+
+    return len(response.data) > 0 # Returns True if a row was updated
+    
 # =================================================================
-#           PHASE 2: USER AUTHENTICATION & TELEGRAM LINKING
+#                 API ROUTES
 # =================================================================
+
+# --- 0. Root Route / Health Check ---
+@app.route('/')
+def index():
+    return jsonify({
+        "status": "OK", 
+        "service": "Crypto Pulse API is Running",
+        "timestamp": datetime.now().isoformat()
+    }), 200
 
 # --- 1. POST /api/register ---
 @app.route('/api/register', methods=['POST'])
 def register():
-    """Handles new user registration."""
     data = request.get_json()
     email = data.get('email')
     password = data.get('password')
@@ -68,15 +135,20 @@ def register():
     if not email or not password:
         return jsonify({"error": "Email and password are required."}), 400
 
-    # NOTE: Placeholder logic. You must implement the register_user function
-    # that hashes the password and saves it to the 'users' table.
     try:
-        # user_id = register_user(email, password) # <-- Uncomment when implemented
-        user_id = "test-user-id" # Placeholder
-        if user_id:
-            return jsonify({"message": "User registered successfully!", "user_id": user_id}), 201
-        else:
-            return jsonify({"error": "Registration failed. Email may already be in use."}), 409
+        # Supabase Auth: Creates the user in auth.users table
+        response = supabase.auth.sign_up(
+            email=email,
+            password=password,
+            options={'data': {'telegram_user_id': None}} # Initialize custom metadata
+        )
+        # If successful, response.user contains the UUID
+        if response.user:
+             # NOTE: You should have an RLS policy and trigger to auto-create the 'profiles' row here.
+            return jsonify({"message": "User registered successfully! Check email for confirmation.", "user_id": response.user.id}), 201
+        
+    except AuthApiError as e:
+         return jsonify({"error": f"Registration failed: {e.message}"}), 409
     except Exception as e:
         logger.error(f"Error during registration: {e}")
         return jsonify({"error": "Internal server error during registration.", "details": str(e)}), 500
@@ -85,7 +157,6 @@ def register():
 # --- 2. POST /api/login ---
 @app.route('/api/login', methods=['POST'])
 def login():
-    """Handles user login and returns a JWT access token."""
     data = request.get_json()
     email = data.get('email')
     password = data.get('password')
@@ -93,62 +164,68 @@ def login():
     if not email or not password:
         return jsonify({"error": "Email and password are required."}), 400
     
-    # NOTE: Placeholder logic. You must implement verify_user 
-    # (checking hashed password and returning user_id).
     try:
-        # user = verify_user(email, password) # <-- Uncomment when implemented
-        user_id = "f3a8d746-5295-4773-b663-3ff337a74372" # Placeholder for successful login
-        if user_id:
-            # Create the tokens and return them to the user
+        # Supabase Auth: Verifies credentials
+        response = supabase.auth.sign_in_with_password({'email': email, 'password': password})
+        
+        if response.user:
+            # Create the tokens using Flask-JWT-Extended
+            user_id = response.user.id
             access_token = create_access_token(identity=user_id)
             return jsonify(access_token=access_token, user_id=user_id), 200
         else:
             return jsonify({"error": "Invalid email or password."}), 401
+            
+    except AuthApiError as e:
+        # Supabase returns AuthApiError for invalid credentials
+        return jsonify({"error": "Invalid email or password."}), 401
     except Exception as e:
         logger.error(f"Error during login: {e}")
         return jsonify({"error": "Internal server error during login.", "details": str(e)}), 500
 
 
-# --- 3. POST /api/link-telegram-account ---
-@app.route('/api/link-telegram-account', methods=['POST'])
-@jwt_required() # Requires a valid JWT token
-def link_telegram_account():
-    """Links the logged-in user's web account to a Telegram chat_id via a token."""
-    user_id = get_jwt_identity() # The user ID from the JWT token
-    data = request.get_json()
-    link_token = data.get('link_token')
-
-    if not link_token:
-        return jsonify({"error": "Missing required field: link_token"}), 400
-
-    # NOTE: Placeholder logic. Implement the following in auth_db_connector:
-    # 1. Fetch chat_id using link_token from the temporary table.
-    # 2. Update the 'users' table, setting the telegram_chat_id for this user_id.
-    # 3. Delete the temporary link_token.
+# --- 3. POST /api/manual-telegram-link (GOAL 2) ---
+@app.route('/api/manual-telegram-link', methods=['POST'])
+@jwt_required()
+def manual_telegram_link():
+    """Manually links a Telegram User ID to the authenticated user's account."""
     try:
-        # chat_id = get_chat_id_by_token(link_token) # <-- Uncomment when implemented
-        chat_id = "1234567890" # Placeholder for successful token lookup
-        if chat_id:
-            # link_telegram_id(user_id, chat_id) # <-- Uncomment when implemented
-            # delete_telegram_token(link_token) # <-- Uncomment when implemented
-            return jsonify({"message": "Telegram account linked successfully!"}), 200
+        user_uuid = get_jwt_identity() # Get user UUID from JWT
+        data = request.get_json()
+        telegram_id = data.get('telegram_user_id')
+
+        if not telegram_id:
+            return jsonify({"error": "Missing telegram_user_id"}), 400
+
+        try:
+            telegram_id = int(telegram_id)
+        except ValueError:
+            return jsonify({"error": "telegram_user_id must be a valid integer"}), 400
+
+        # Supabase Update: Update the profiles table
+        response = supabase.table('profiles').update({ 
+            'telegram_user_id': telegram_id 
+        }).eq('id', user_uuid).execute() 
+
+        if len(response.data) > 0:
+            return jsonify({
+                "message": f"Telegram ID {telegram_id} successfully linked to user {user_uuid}.",
+                "user_id": user_uuid
+            }), 200
         else:
-            return jsonify({"error": "Invalid or expired link token."}), 404
+            # This happens if the user profile record is not found
+            return jsonify({"error": "User profile not found in database."}), 404
+
     except Exception as e:
-        logger.error(f"Error linking Telegram account for user {user_id}: {e}")
-        return jsonify({"error": "Internal server error during linking.", "details": str(e)}), 500
+        logger.error(f"Telegram Link Error: {e}")
+        return jsonify({"error": "Internal server error during link process.", "details": str(e)}), 500
 
 
-# =================================================================
-#           PHASE 1: PROTECTED ALERT MANAGEMENT ENDPOINTS
-# =================================================================
-
-# --- 4. POST /api/create-alert (NOW PROTECTED) ---
+# --- 4. POST /api/create-alert (GOAL 1: Crossover Logic) ---
 @app.route('/api/create-alert', methods=['POST'])
-@jwt_required() # Requires a valid JWT token
+@jwt_required()
 def create_alert():
-    """Endpoint for the web dashboard to create a new alert."""
-    # Get the user ID from the JWT token identity
+    """Endpoint for the web dashboard to create a new alert using the parser."""
     user_id = get_jwt_identity() 
 
     try:
@@ -158,46 +235,37 @@ def create_alert():
         if not alert_phrase:
             return jsonify({"error": "Missing required field: alert_phrase"}), 400
 
-        # The user_id is now taken from the secure JWT token, not the request body
-        
-        # 1. Parse the request (handles new conditions like RSI/EMA/BBAND)
-        parsed_params = parse_alert_request(alert_phrase)
-        
-        if 'error' in parsed_params:
-            logger.warning(f"Parsing failed for user {user_id}: {parsed_params['error']}")
-            return jsonify({
-                "error": "Could not understand your alert phrase.",
-                "details": parsed_params['error']
-            }), 400
+        # 1. Parse the request using the new function (handles crosses)
+        parsed_data = parse_alert_phrase(alert_phrase)
+        parsed_data['user_id'] = user_id
+        parsed_data['status'] = 'ACTIVE' # Set default status
 
-        # 2. Save the alert to the database
-        if save_alert_to_db(user_id, parsed_params, is_telegram_alert=False):
-            logger.info(f"Alert created for user {user_id}: {parsed_params.get('asset')}")
-            return jsonify({
-                "message": "Alert created successfully.",
-                "alert_type": parsed_params.get('type')
-            }), 201
-        else:
-            # This handles database connection errors that prevent saving
-            return jsonify({"error": "Database error: Failed to save the alert."}), 500
+        # 2. Save the structured alert to the database
+        response = supabase.table('alerts').insert(parsed_data).execute()
+        
+        logger.info(f"Alert created for user {user_id}: {parsed_data.get('asset')} - {parsed_data.get('alert_type')}")
+        return jsonify({
+            "message": "Alert created successfully.",
+            "alert_type": parsed_data.get('alert_type'),
+            "details": parsed_data
+        }), 201
 
+    except ValueError as ve:
+        logger.warning(f"Parsing failed for user {user_id}: {ve}")
+        return jsonify({"error": "Could not understand your alert phrase.", "details": str(ve)}), 400
     except Exception as e:
         logger.error(f"Error in create_alert API for user {user_id}: {e}")
         return jsonify({"error": "Internal server error.", "details": str(e)}), 500
 
-# --- 5. GET /api/my-alerts (UPDATED FOR JWT) ---
+# --- 5. GET /api/my-alerts ---
 @app.route('/api/my-alerts', methods=['GET'])
-@jwt_required() # Requires a valid JWT token
+@jwt_required()
 def get_my_alerts():
-    """
-    Endpoint to fetch all ACTIVE alerts for the logged-in user.
-    """
-    # Get the user ID from the JWT token identity
+    """Endpoint to fetch all ACTIVE alerts for the logged-in user."""
     user_id = get_jwt_identity()
     
     try:
-        alerts = fetch_user_alerts(user_id)
-        # Use custom serializer for datetime objects
+        alerts = fetch_user_alerts(user_id) 
         json_alerts = json.dumps(alerts, default=default_serializer) 
         
         logger.info(f"Fetched {len(alerts)} active alerts for user {user_id}.")
@@ -212,14 +280,12 @@ def get_my_alerts():
         logger.error(f"Error fetching alerts for user {user_id}: {e}")
         return jsonify({"error": "Internal server error while fetching alerts.", "details": str(e)}), 500
 
-# --- 6. POST /api/delete-alert (NOW PROTECTED) ---
+# --- 6. POST /api/delete-alert ---
 @app.route('/api/delete-alert', methods=['POST'])
-@jwt_required() # Requires a valid JWT token
+@jwt_required()
 def delete_alert():
-    """
-    Endpoint to logically delete (deactivate) an alert by ID, verified against the user ID.
-    """
-    user_id = get_jwt_identity() # The user must own the alert
+    """Endpoint to logically delete (deactivate) an alert by ID, verified against the user ID."""
+    user_id = get_jwt_identity()
     
     try:
         data = request.get_json()
@@ -228,13 +294,10 @@ def delete_alert():
         if not alert_id:
             return jsonify({"error": "Missing required field: alert_id"}), 400
             
-        # NOTE: You MUST update deactivate_alert() to ensure the alert belongs 
-        # to the current user_id before deleting it for security.
         if deactivate_alert(alert_id, user_id=user_id, status='DELETED'):
             logger.info(f"Alert ID {alert_id} logically deleted by user {user_id}.")
             return jsonify({"message": f"Alert ID {alert_id} deleted successfully."}), 200
         else:
-            # Return 404 if not found OR 403 if they don't own it
             return jsonify({"error": f"Failed to delete alert ID {alert_id}. Alert not found or does not belong to user."}), 404 
 
     except Exception as e:
@@ -243,5 +306,6 @@ def delete_alert():
 
 
 # --- PRODUCTION EXECUTION ---
-# The application is run by Gunicorn using the command: gunicorn web_api:app
-# Remember to install Flask-JWT-Extended and bcrypt!
+if __name__ == '__main__':
+    # Only runs for local testing, Render will use Gunicorn
+    app.run(debug=True)
