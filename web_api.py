@@ -14,24 +14,35 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Supabase Configuration ---
-# BEST PRACTICE: Use environment variables in production (e.g., on Render)
-SUPABASE_URL = os.environ.get("SUPABASE_URL", 'https://eblmnwfnhjlvkkevgqeh.supabase.co')
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVibG1ud2ZuaGpsdmtrZXZncWVoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUyMTAzOTgsImV4cCI6MjA4MDc4NjM5OH0.7i_Vk6bnMgNez1lQpFMGCjrQ6OsFATl2BWSOZ5Yb1zI')
+# 1. Load variables from the environment.
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-if SUPABASE_URL == 'https://eblmnwfnhjlvkkevgqeh.supabase.co':
-    logger.warning("Supabase URL is a placeholder. UPDATE YOUR CREDENTIALS!")
+# 2. ENFORCE that the secrets are set. Fail fast if they are missing.
+if not SUPABASE_URL or not SUPABASE_KEY:
+    raise EnvironmentError(
+        "FATAL: SUPABASE_URL and SUPABASE_KEY environment variables must be set."
+    )
 
 try:
     # Initialize the Supabase Client
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {e}")
-    # The app will likely fail to start if the client cannot be created
+    # Re-raise to prevent the app from starting with a broken connection
+    raise
 
 app = Flask(__name__)
 
 # --- JWT Configuration ---
-app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "053d7045c69f73e9749589c604c9230294e9ad863700595d7d836343881931ef")
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY")
+
+# ENFORCE that the JWT secret is set.
+if not app.config["JWT_SECRET_KEY"]:
+    raise EnvironmentError(
+        "FATAL: JWT_SECRET_KEY environment variable must be set."
+    )
+
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
 jwt = JWTManager(app)
 
@@ -136,7 +147,7 @@ def register():
         return jsonify({"error": "Email and password are required."}), 400
 
     try:
-        # --- FIX: Using the 'credentials' dictionary for sign_up ---
+        # Using the 'credentials' dictionary for sign_up
         response = supabase.auth.sign_up(
             credentials={
                 'email': email,
@@ -166,7 +177,7 @@ def login():
         return jsonify({"error": "Email and password are required."}), 400
     
     try:
-        # --- FIX: Using the 'credentials' dictionary for sign_in_with_password ---
+        # Using the 'credentials' dictionary for sign_in_with_password
         response = supabase.auth.sign_in_with_password(
             credentials={
                 'email': email,
