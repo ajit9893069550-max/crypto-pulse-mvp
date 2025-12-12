@@ -10,3 +10,4 @@ python-dotenv  # For local testing
 TA-Lib
 Flask-JWT-Extended
 supabase
+supabase-auth
