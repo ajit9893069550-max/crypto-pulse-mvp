@@ -31,7 +31,7 @@ except Exception as e:
 app = Flask(__name__)
 
 # --- JWT Configuration ---
-app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "super-secret-key-change-me") # CHANGE ME!
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "053d7045c69f73e9749589c604c9230294e9ad863700595d7d836343881931ef")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
 jwt = JWTManager(app)
 
