@@ -138,11 +138,9 @@ def register():
     try:
         # Supabase Auth: Creates the user in auth.users table
         response = supabase.auth.sign_up(
-            credentials={
-              'email': email,
-              'password' : password
-            },  
-            options={'data': {'telegram_user_id': None}} # Initialize custom metadata
+              email = email,
+              password =password   
+            # options={'data': {'telegram_user_id': None}} # Initialize custom metadata
         )
         # If successful, response.user contains the UUID
         if response.user:
