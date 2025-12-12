@@ -138,8 +138,10 @@ def register():
     try:
         # Supabase Auth: Creates the user in auth.users table
         response = supabase.auth.sign_up(
-            email=email,
-            password=password,
+            credentials={
+              'email': email,
+              'password' : password
+            },  
             options={'data': {'telegram_user_id': None}} # Initialize custom metadata
         )
         # If successful, response.user contains the UUID
@@ -166,7 +168,7 @@ def login():
     
     try:
         # Supabase Auth: Verifies credentials
-        response = supabase.auth.sign_in_with_password({'email': email, 'password': password})
+        response = supabase.auth.sign_in_with_password(email=email, password=password)
         
         if response.user:
             # Create the tokens using Flask-JWT-Extended
