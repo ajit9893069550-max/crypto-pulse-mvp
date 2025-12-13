@@ -1,4 +1,4 @@
-import ccxt
+import ccxt.async_support as ccxt
 import talib
 import numpy as np
 import pandas as pd
