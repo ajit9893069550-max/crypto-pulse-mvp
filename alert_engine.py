@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Initialize the Telegram Bot and the Exchange (for async use)
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
-exchange = getattr(ccxt, EXCHANGE_ID)({'enableRateLimit': True})
+exchange = ccxt.binanceus({'enableRateLimit': True})
 
 # --- 1. DATABASE CONNECTION AND MANAGEMENT ---
 
