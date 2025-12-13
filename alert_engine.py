@@ -54,8 +54,8 @@ def get_db_connection():
 
 def fetch_active_alerts():
 	"""
-	Retrieves all 'ACTIVE' alerts by correctly joining with the 'public.profiles' 
-	table to get the necessary Telegram user ID.
+	Retrieves all 'ACTIVE' alerts by correctly joining with the 'public.users' 
+	table to get the necessary Telegram chat ID, using the user_uuid column.
 	"""
 	conn = get_db_connection()
 	if not conn:
@@ -63,18 +63,18 @@ def fetch_active_alerts():
 		
 	try:
 		cursor = conn.cursor()
-		# CRITICAL FIX: Ensures JOIN with 'profiles' table is correct and 
-		# only returns alerts where telegram_user_id is set.
+		# *** FINAL CRITICAL FIX for your schema ***
+		# Joins 'alerts' with 'users' table using user_uuid and fetches telegram_chat_id.
 		cursor.execute("""
 			SELECT 
 				a.id, a.user_id, a.asset, a.timeframe, a.alert_type, 
-				a.operator, a.target_value, a.params, p.telegram_user_id 
+				a.operator, a.target_value, a.params, p.telegram_chat_id 
 			FROM 
 				public.alerts a
 			JOIN 
-				public.profiles p ON a.user_id = p.id
+				public.users p ON a.user_id = p.user_uuid 
 			WHERE 
-				a.status = 'ACTIVE' AND p.telegram_user_id IS NOT NULL;
+				a.status = 'ACTIVE' AND p.telegram_chat_id IS NOT NULL;
 		""")
 		
 		# Get column names to structure the results
@@ -148,9 +148,9 @@ def check_ma_cross(ohlcv_data, alert):
 		return None
 
 	was_below = (fast_ma[-2] < slow_ma[-2])
-	is_above = (fast_ma[-1] > slow_ma[-1])
+	is_above  = (fast_ma[-1] > slow_ma[-1])
 	was_above = (fast_ma[-2] > slow_ma[-2])
-	is_below = (fast_ma[-1] < slow_ma[-1])
+	is_below  = (fast_ma[-1] < slow_ma[-1])
 	
 	alert_message = None
 
@@ -164,6 +164,7 @@ def check_ma_cross(ohlcv_data, alert):
 			f"💀 **DEATH CROSS ALERT** for {alert['asset']} ({alert['timeframe']})!\n"
 			f"Fast EMA ({fast_ma_period:.0f}) crossed **BELOW** Slow EMA ({slow_ma_period:.0f})."
 		)
+    #  
 
 	return alert_message
 
@@ -211,11 +212,10 @@ async def run_alert_check(alert):
 	asset = alert.get('asset')
 	timeframe = alert.get('timeframe') 
 	alert_type = alert.get('alert_type') 
-	chat_id = alert.get('telegram_user_id') 
+	chat_id = alert.get('telegram_chat_id') # Fetching telegram_chat_id 
 	
 	# CRITICAL CHECK: Ensure we have the minimum data (ID, Asset, Type, and Telegram ID)
 	if not all([asset, alert_type, chat_id, alert_id]):
-		# This warning is expected if a user has not linked their Telegram ID.
 		logger.warning(f"Skipping alert {alert_id}: Missing Asset, Type, or Telegram ID ({chat_id}).")
 		return
 	
