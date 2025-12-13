@@ -21,7 +21,7 @@ from telegram.constants import ParseMode
 # NOTE: Ensure you have a config.py file or set these as environment variables
 from config import TELEGRAM_BOT_TOKEN, DATABASE_URL
 
-CHECK_INTERVAL_SECONDS = 60 	# Check for alerts every 60 seconds
+CHECK_INTERVAL_SECONDS = 1800 	# Check for alerts every 60 seconds
 EXCHANGE_ID = 'binance' 		# The exchange to use
 
 # --- Setup Logging ---
