@@ -7,6 +7,7 @@ import pandas as pd
 import time
 import asyncio
 import logging
+import json # Import json to handle the params field
 from datetime import datetime
 
 # Database imports
@@ -19,6 +20,7 @@ from telegram import Bot
 from telegram.constants import ParseMode
 
 # Import configurations
+# NOTE: Ensure you have a config.py or use environment variables for these
 from config import TELEGRAM_BOT_TOKEN, DATABASE_URL
 
 # --- Configuration ---
@@ -41,6 +43,7 @@ def get_db_connection():
     """Returns an active PostgreSQL connection object."""
     try:
         url = urlparse(DATABASE_URL)
+        # Assuming you use a structure like postgres://user:password@host:port/database
         conn = psycopg2.connect(
             database=url.path[1:],
             user=url.username,
@@ -55,8 +58,8 @@ def get_db_connection():
 
 def fetch_active_alerts():
     """
-    FIXED: Retrieves all 'ACTIVE' alerts by joining with the 'public.users' 
-    table to get the necessary Telegram chat_id.
+    UPDATED: Retrieves all 'ACTIVE' alerts including the new 'params' field 
+    and necessary columns for both alert types.
     """
     conn = get_db_connection()
     if not conn:
@@ -64,17 +67,17 @@ def fetch_active_alerts():
         
     try:
         cursor = conn.cursor()
-        # SQL JOIN to retrieve active alerts and the associated chat_id
+        # Ensure your table names are correct (e.g., profiles is used for telegram_user_id)
         cursor.execute("""
             SELECT 
                 a.id, a.user_id, a.asset, a.timeframe, a.alert_type, 
-                a.params, a.condition_text, u.telegram_chat_id
+                a.operator, a.target_value, a.params, p.telegram_user_id 
             FROM 
                 public.alerts a
             JOIN 
-                public.users u ON a.user_id = u.user_uuid
+                public.profiles p ON a.user_id = p.id
             WHERE 
-                a.status = 'ACTIVE' AND u.telegram_chat_id IS NOT NULL;
+                a.status = 'ACTIVE' AND p.telegram_user_id IS NOT NULL;
         """)
         
         # Get column names to structure the results
@@ -91,10 +94,7 @@ def fetch_active_alerts():
         return []
 
 def deactivate_alert(alert_id, status='TRIGGERED'):
-    """
-    FIXED: Sets an alert's status to TRIGGERED or other status 
-    in the public.alerts table.
-    """
+    """Sets an alert's status to TRIGGERED or other status."""
     conn = get_db_connection()
     if not conn:
         return False
@@ -131,12 +131,12 @@ async def send_telegram_alert(message, chat_id):
         logger.error(f"Error sending Telegram alert to {chat_id}: {e}")
         return False
 
-# --- 3. ALERT CHECKING FUNCTIONS (MAINTAINING PANDAS/TALIB LOGIC) ---
+# --- 3. ALERT CHECKING FUNCTIONS ---
 
 def check_ma_cross(ohlcv_data, alert):
-    """Checks for a Golden Cross or Death Cross."""
-    # The 'params' are now nested under the alert object from the DB query
-    params = alert['params']
+    """Checks for a Golden Cross (ABOVE) or Death Cross (BELOW)."""
+    # Params now hold the specific condition
+    params = alert['params'] 
     
     fast_ma_period = params.get('fast_ma', 50)
     slow_ma_period = params.get('slow_ma', 200)
@@ -171,7 +171,10 @@ def check_ma_cross(ohlcv_data, alert):
     return alert_message
 
 def check_price_level(ohlcv_data, alert):
-    """Checks if the price has crossed a specific target level."""
+    """
+    UPDATED: Checks if the price has crossed a specific target level. 
+    Reads target price and condition from the 'params' field.
+    """
     params = alert['params']
 
     target_price = params.get('target_price')
@@ -204,18 +207,18 @@ async def run_alert_check(alert):
     alert_id = alert.get('id')
     asset = alert.get('asset')
     timeframe = alert.get('timeframe')
-    alert_type = alert.get('alert_type') # Use the database column name
-    chat_id = alert.get('telegram_chat_id') 
-
+    alert_type = alert.get('alert_type') 
+    chat_id = alert.get('telegram_user_id') # Changed from telegram_chat_id to telegram_user_id
+    
     if not all([asset, timeframe, alert_type, chat_id, alert_id]):
-        logger.warning(f"Skipping alert due to missing crucial data: {alert_id}")
+        logger.warning(f"Skipping alert due to missing crucial data: {alert_id} (Missing telegram_user_id or asset/timeframe)")
         return
     
     logger.info(f"-> Checking alert {alert_id}: {alert_type} for {asset} ({timeframe})")
     
     try:
         # Fetch OHLCV data using ccxt
-        ohlcv = await exchange.fetch_ohlcv(asset, timeframe, limit=300) 
+        ohlcv = await exchange.fetch_ohlcv(f"{asset}/USDT", timeframe, limit=300) 
         
         if not ohlcv or len(ohlcv) < 200:
             logger.warning(f"Insufficient data for deep checks on {asset} ({timeframe}). Skipping.")
@@ -225,14 +228,15 @@ async def run_alert_check(alert):
         
         message = None
         
-        # Dispatch logic uses the correct 'alert_type'
+        # Dispatch logic uses the standardized alert_type
         if alert_type == 'MA_CROSS':
             message = check_ma_cross(df, alert)
-        elif alert_type == 'PRICE_LEVEL':
+        elif alert_type == 'PRICE_TARGET': # Standardized type for price alerts
             message = check_price_level(df, alert)
         
         if message:
             # 1. Send the notification
+            # Note: We use the telegram_user_id column from the profiles table as chat_id
             await send_telegram_alert(message, chat_id) 
             
             # 2. Deactivate the alert in the database
@@ -259,8 +263,7 @@ async def main_worker_loop():
             else:
                 logger.info(f"Fetched {len(active_alerts)} active alerts to check.")
                 
-                # Use asyncio.gather to check alerts concurrently (if possible)
-                # Ensure you manage ccxt rate limits if checking many symbols at once.
+                # Run checks concurrently
                 await asyncio.gather(*(run_alert_check(alert) for alert in active_alerts))
                 
         except Exception as e:

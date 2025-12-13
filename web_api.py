@@ -14,11 +14,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Supabase Configuration ---
-# 1. Load variables from the environment.
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
-# 2. ENFORCE that the secrets are set. Fail fast if they are missing.
 if not SUPABASE_URL or not SUPABASE_KEY:
     raise EnvironmentError(
         "FATAL: SUPABASE_URL and SUPABASE_KEY environment variables must be set."
@@ -29,7 +27,6 @@ try:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {e}")
-    # Re-raise to prevent the app from starting with a broken connection
     raise
 
 app = Flask(__name__)
@@ -37,7 +34,6 @@ app = Flask(__name__)
 # --- JWT Configuration ---
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY")
 
-# ENFORCE that the JWT secret is set.
 if not app.config["JWT_SECRET_KEY"]:
     raise EnvironmentError(
         "FATAL: JWT_SECRET_KEY environment variable must be set."
@@ -59,16 +55,23 @@ def default_serializer(obj):
 def parse_alert_phrase(phrase):
     """
     Parses a plain English phrase into structured alert data, 
-    handling PRICE_TARGET, GOLDEN_CROSS, and DEATH_CROSS (Goal 1).
+    handling PRICE_TARGET, GOLDEN_CROSS, and DEATH_CROSS.
+    
+    KEY UPDATE: Standardizes cross alerts to MA_CROSS and saves details 
+    in the 'params' dictionary.
     """
     phrase = phrase.upper().strip()
     
     # 1. Check for Complex MA Cross Alerts (50 MA / 200 MA)
     if 'CROSS' in phrase:
         if 'GOLDEN' in phrase:
-            sub_type = 'GOLDEN_CROSS'
+            # Standardize type to MA_CROSS, condition is ABOVE
+            sub_type = 'MA_CROSS' 
+            condition = 'ABOVE'
         elif 'DEATH' in phrase:
-            sub_type = 'DEATH_CROSS'
+            # Standardize type to MA_CROSS, condition is BELOW
+            sub_type = 'MA_CROSS' 
+            condition = 'BELOW'
         else:
             raise ValueError("Crossover alert must specify 'Golden Cross' or 'Death Cross'.")
             
@@ -84,7 +87,13 @@ def parse_alert_phrase(phrase):
                 'asset': asset, 
                 'timeframe': timeframe, 
                 'operator': None, 
-                'target_value': None
+                'target_value': None,
+                # NEW: Store specific MA cross details in params
+                'params': { 
+                    'condition': condition, 
+                    'fast_ma': 50,  # Default periods for engine
+                    'slow_ma': 200
+                }
             }
         else:
             raise ValueError("Crossover alert requires an asset (e.g., BTC) and a timeframe (e.g., 1D).")
@@ -101,7 +110,12 @@ def parse_alert_phrase(phrase):
             'asset': asset, 
             'operator': operator, 
             'target_value': target_value, 
-            'timeframe': None
+            'timeframe': None,
+            # NEW: Store specific Price details in params
+            'params': {
+                'target_price': target_value,
+                'condition': 'ABOVE' if operator == '>' else 'BELOW'
+            }
         }
     
     raise ValueError("Invalid alert format. Please use: 'BTC > 65000' or 'Golden Cross on ETH 4H'.")
@@ -124,7 +138,7 @@ def deactivate_alert(alert_id, user_id, status='DELETED'):
     return len(response.data) > 0 # Returns True if a row was updated
     
 # =================================================================
-#                 API ROUTES
+#                         API ROUTES
 # =================================================================
 
 # --- 0. Root Route / Health Check ---
@@ -147,16 +161,13 @@ def register():
         return jsonify({"error": "Email and password are required."}), 400
 
     try:
-        # Using the 'credentials' dictionary for sign_up
         response = supabase.auth.sign_up(
             credentials={
                 'email': email,
                 'password': password
             }
         )
-        # If successful, response.user contains the UUID
         if response.user:
-            # NOTE: You should have an RLS policy and trigger to auto-create the 'profiles' row here.
             return jsonify({"message": "User registered successfully! Check email for confirmation.", "user_id": response.user.id}), 201
         
     except AuthApiError as e:
@@ -177,7 +188,6 @@ def login():
         return jsonify({"error": "Email and password are required."}), 400
     
     try:
-        # Using the 'credentials' dictionary for sign_in_with_password
         response = supabase.auth.sign_in_with_password(
             credentials={
                 'email': email,
@@ -186,7 +196,6 @@ def login():
         )
         
         if response.user:
-            # Create the tokens using Flask-JWT-Extended
             user_id = response.user.id
             access_token = create_access_token(identity=user_id)
             return jsonify(access_token=access_token, user_id=user_id), 200
@@ -194,20 +203,19 @@ def login():
             return jsonify({"error": "Invalid email or password."}), 401
             
     except AuthApiError as e:
-        # Supabase returns AuthApiError for invalid credentials
         return jsonify({"error": "Invalid email or password."}), 401
     except Exception as e:
         logger.error(f"Error during login: {e}")
         return jsonify({"error": "Internal server error during login.", "details": str(e)}), 500
 
 
-# --- 3. POST /api/manual-telegram-link (GOAL 2) ---
+# --- 3. POST /api/manual-telegram-link ---
 @app.route('/api/manual-telegram-link', methods=['POST'])
 @jwt_required()
 def manual_telegram_link():
     """Manually links a Telegram User ID to the authenticated user's account."""
     try:
-        user_uuid = get_jwt_identity() # Get user UUID from JWT
+        user_uuid = get_jwt_identity()
         data = request.get_json()
         telegram_id = data.get('telegram_user_id')
 
@@ -219,7 +227,7 @@ def manual_telegram_link():
         except ValueError:
             return jsonify({"error": "telegram_user_id must be a valid integer"}), 400
 
-        # Supabase Update: Update the profiles table
+        # Update the profiles table
         response = supabase.table('profiles').update({ 
             'telegram_user_id': telegram_id 
         }).eq('id', user_uuid).execute() 
@@ -230,7 +238,6 @@ def manual_telegram_link():
                 "user_id": user_uuid
             }), 200
         else:
-            # This happens if the user profile record is not found
             return jsonify({"error": "User profile not found in database."}), 404
 
     except Exception as e:
@@ -238,7 +245,7 @@ def manual_telegram_link():
         return jsonify({"error": "Internal server error during link process.", "details": str(e)}), 500
 
 
-# --- 4. POST /api/create-alert (GOAL 1: Crossover Logic) ---
+# --- 4. POST /api/create-alert ---
 @app.route('/api/create-alert', methods=['POST'])
 @jwt_required()
 def create_alert():
@@ -252,7 +259,7 @@ def create_alert():
         if not alert_phrase:
             return jsonify({"error": "Missing required field: alert_phrase"}), 400
 
-        # 1. Parse the request using the new function (handles crosses)
+        # 1. Parse the request using the updated function
         parsed_data = parse_alert_phrase(alert_phrase)
         parsed_data['user_id'] = user_id
         parsed_data['status'] = 'ACTIVE' # Set default status
