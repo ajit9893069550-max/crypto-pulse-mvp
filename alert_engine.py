@@ -148,9 +148,9 @@ def check_ma_cross(ohlcv_data, alert):
 		return None
 
 	was_below = (fast_ma[-2] < slow_ma[-2])
-	is_above  = (fast_ma[-1] > slow_ma[-1])
+	is_above = (fast_ma[-1] > slow_ma[-1])
 	was_above = (fast_ma[-2] > slow_ma[-2])
-	is_below  = (fast_ma[-1] < slow_ma[-1])
+	is_below = (fast_ma[-1] < slow_ma[-1])
 	
 	alert_message = None
 
