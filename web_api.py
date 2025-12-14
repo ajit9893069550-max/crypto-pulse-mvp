@@ -2,12 +2,14 @@ import re
 import os
 import json
 import logging
+import asyncio # Required for running CCXT async calls
 from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 from flask_cors import CORS 
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, JWTManager
 from supabase import create_client, Client
 from supabase_auth.errors import AuthApiError
+import ccxt.async_support as ccxt # Import CCXT for fetching market data
 
 # --- CONFIGURATION & INITIALIZATION ---
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +47,15 @@ jwt = JWTManager(app)
 # Allow all origins for API endpoints
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
+# --- CCXT Configuration ---
+# Set the exchange you want to fetch pairs from
+EXCHANGE_ID = 'binanceus' 
+
+async def get_exchange():
+    """Returns an exchange object with rate limiting enabled."""
+    return ccxt.__getattribute__(EXCHANGE_ID)({'enableRateLimit': True})
+
+
 # --- Helper Functions ---
 def default_serializer(obj):
     """Custom JSON serializer for objects not serializable by default json code"""
@@ -56,11 +67,11 @@ def parse_alert_phrase(phrase):
     """
     Parses a plain English phrase into structured alert data, 
     handling PRICE_TARGET, GOLDEN_CROSS, and DEATH_CROSS.
-    
-    KEY UPDATE: Standardizes cross alerts to MA_CROSS and saves details 
-    in the 'params' dictionary.
     """
     phrase = phrase.upper().strip()
+    
+    # List of supported assets for parsing (added USDT)
+    SUPPORTED_ASSETS = r'(BTC|ETH|SOL|LTC|BNB|ADA|XRP|USDT)'
     
     # 1. Check for Complex MA Cross Alerts (50 MA / 200 MA)
     if 'CROSS' in phrase:
@@ -76,7 +87,8 @@ def parse_alert_phrase(phrase):
             raise ValueError("Crossover alert must specify 'Golden Cross' or 'Death Cross'.")
             
         # Regex to find asset (e.g., BTC, ETH) and timeframe (e.g., 1D, 4H)
-        match = re.search(r'(BTC|ETH|SOL|LTC|BNB|ADA|XRP)\s*.*?(\d+[HDWM])', phrase)
+        # Uses the improved SUPPORTED_ASSETS regex
+        match = re.search(f'{SUPPORTED_ASSETS}\\s*.*?(\\d+[HDWM])', phrase)
         
         if match:
             asset = match.group(1)
@@ -99,7 +111,8 @@ def parse_alert_phrase(phrase):
             raise ValueError("Crossover alert requires an asset (e.g., BTC) and a timeframe (e.g., 1D).")
             
     # 2. Check for Simple Price Alerts
-    match = re.search(r'(BTC|ETH|SOL|LTC|BNB|ADA|XRP)\s*([<>])\s*([\d,.]+)', phrase)
+    # Uses the improved SUPPORTED_ASSETS regex
+    match = re.search(f'{SUPPORTED_ASSETS}\\s*([<>])\\s*([\\d,.]+)', phrase)
     if match:
         asset = match.group(1)
         operator = match.group(2)
@@ -171,7 +184,11 @@ def register():
             return jsonify({"message": "User registered successfully! Check email for confirmation.", "user_id": response.user.id}), 201
         
     except AuthApiError as e:
-        return jsonify({"error": f"Registration failed: {e.message}"}), 409
+        # Supabase often returns 409 (Conflict) or 400 (Bad Request) for "user already exists" or "weak password"
+        logger.warning(f"Registration failed for {email}: {e.message}")
+        # Return 409 for conflict, otherwise 400 or 500
+        status_code = 409 if 'already exists' in e.message.lower() else 400
+        return jsonify({"error": f"Registration failed: {e.message}"}), status_code
     except Exception as e:
         logger.error(f"Error during registration: {e}")
         return jsonify({"error": "Internal server error during registration.", "details": str(e)}), 500
@@ -203,6 +220,8 @@ def login():
             return jsonify({"error": "Invalid email or password."}), 401
             
     except AuthApiError as e:
+        # Catch common auth errors like invalid credentials
+        logger.warning(f"Login failed for {email}: {e.message}")
         return jsonify({"error": "Invalid email or password."}), 401
     except Exception as e:
         logger.error(f"Error during login: {e}")
@@ -327,6 +346,50 @@ def delete_alert():
     except Exception as e:
         logger.error(f"Error in delete_alert API for user {user_id}: {e}")
         return jsonify({"error": "Internal server error.", "details": str(e)}), 500
+
+# --- 7. GET /api/supported-pairs (NEW) ---
+@app.route('/api/supported-pairs', methods=['GET'])
+def get_supported_pairs():
+    """Fetches and returns the list of all trading pairs (markets) from the exchange."""
+    
+    # We must run the CCXT call asynchronously
+    async def fetch_markets_async():
+        exchange = await get_exchange()
+        try:
+            # Fetch all markets
+            markets = await exchange.fetch_markets() 
+            await exchange.close() # Close the connection
+            
+            # Extract symbol, filtering for SPOT markets and USDT pairs
+            symbols = sorted([
+                m['symbol'] 
+                for m in markets 
+                if m.get('spot') and '/USDT' in m['symbol']
+            ])
+            return symbols
+            
+        except Exception as e:
+            logger.error(f"CCXT fetch_markets error: {e}")
+            # Return error message and status code for easy handling
+            return {"error": "Failed to fetch markets from exchange.", "details": str(e)}, 500
+
+    try:
+        # Run the async CCXT call using asyncio.run
+        result = asyncio.run(fetch_markets_async())
+        
+        # Check if the result is an error dict
+        if isinstance(result, tuple) and len(result) == 2 and 'error' in result[0]:
+             return jsonify(result[0]), result[1] 
+
+        return jsonify({
+            "exchange": EXCHANGE_ID, 
+            "supported_pairs": result, 
+            "count": len(result)
+        }), 200
+
+    except Exception as e:
+        logger.error(f"Error in get_supported_pairs route: {e}")
+        return jsonify({"error": "Internal server error during market fetch."}), 500
 
 
 # --- PRODUCTION EXECUTION ---

@@ -55,7 +55,12 @@ function updateAuthStatusUI() {
     }
 }
 
-// --- NEW: LOGIN FUNCTION (Used by login.html) ---
+
+// ==========================================================
+// A. AUTHENTICATION HANDLERS
+// ==========================================================
+
+// --- 1. LOGIN FUNCTION (Used by login.html) ---
 async function handleLogin() {
     const email = document.getElementById('loginEmail')?.value;
     const password = document.getElementById('loginPassword')?.value;
@@ -64,12 +69,15 @@ async function handleLogin() {
     if (!email || !password) {
         if (messageElement) {
              messageElement.textContent = 'Please enter both email and password.';
-             messageElement.className = 'text-warning';
+             messageElement.className = 'text-danger';
         }
         return;
     }
     
-    if (messageElement) messageElement.textContent = 'Logging in...';
+    if (messageElement) {
+        messageElement.textContent = 'Logging in...';
+        messageElement.className = '';
+    }
 
     try {
         const response = await fetch(`${API_BASE_URL}/api/login`, {
@@ -110,7 +118,123 @@ async function handleLogin() {
 }
 
 
-// --- 1. CORE ALERT CREATION FUNCTION ---
+// --- 2. REGISTRATION FUNCTION (Used by register.html - which you need to create) ---
+async function handleRegistration() {
+    const email = document.getElementById('registerEmail')?.value;
+    const password = document.getElementById('registerPassword')?.value;
+    const confirmPassword = document.getElementById('confirmPassword')?.value;
+    const messageElement = document.getElementById('registerMessage');
+
+    if (!email || !password || !confirmPassword) {
+        if (messageElement) {
+            messageElement.textContent = 'Please fill in all fields.';
+            messageElement.className = 'text-danger';
+        }
+        return;
+    }
+
+    if (password !== confirmPassword) {
+        if (messageElement) {
+            messageElement.textContent = 'Passwords do not match.';
+            messageElement.className = 'text-danger';
+        }
+        return;
+    }
+    
+    if (messageElement) {
+        messageElement.textContent = 'Registering...';
+        messageElement.className = '';
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            // Success! Supabase sends email confirmation.
+            if (messageElement) {
+                messageElement.textContent = `✅ Registration Successful! Check email for confirmation. Redirecting to login...`;
+                messageElement.className = 'text-success';
+            }
+            setTimeout(() => {
+                window.location.href = 'login.html'; 
+            }, 3000);
+
+        } else {
+            // Registration failed (e.g., user exists, weak password)
+            let errorMessage = result.error || 'Registration failed.';
+            if (messageElement) {
+                messageElement.textContent = `❌ Registration Failed: ${errorMessage}`;
+                messageElement.className = 'text-danger';
+            }
+        }
+
+    } catch (error) {
+        console.error('Network or Fetch Error:', error);
+        if (messageElement) {
+            messageElement.textContent = '⚠️ Failed to connect to the API.';
+            messageElement.className = 'text-danger';
+        }
+    }
+}
+
+
+// ==========================================================
+// B. MARKET AND ALERT HANDLERS
+// ==========================================================
+
+// --- 3. FETCH & DISPLAY SUPPORTED PAIRS (FOR SIDEBAR) ---
+async function fetchAndDisplaySupportedPairs() {
+    const headerElement = document.querySelector('.asset-list-header h3');
+    const assetListElement = document.getElementById('live-asset-list');
+
+    // Only run if the elements exist (i.e., we are on index.html)
+    if (!headerElement || !assetListElement) return;
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/supported-pairs`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const pairs = data.supported_pairs;
+        const count = data.count;
+
+        // 1. Update the header text
+        headerElement.textContent = `Supported Pairs (${count})`;
+
+        // 2. Clear the placeholder pairs
+        assetListElement.innerHTML = ''; 
+
+        // 3. Populate the list with fetched pairs
+        pairs.forEach(symbol => {
+            const item = document.createElement('div');
+            item.className = 'asset-item';
+            // Placeholder data for price/change (real-time data would require websockets)
+            item.innerHTML = `
+                <span class="ticker">${symbol}</span>
+                <span class="change positive">N/A</span> 
+                <span class="price">--.--</span>
+            `;
+            assetListElement.appendChild(item);
+        });
+
+    } catch (error) {
+        console.error("Failed to fetch supported pairs:", error);
+        headerElement.textContent = `Supported Pairs (Error)`;
+        assetListElement.innerHTML = `<div style="padding: 10px; color: red; font-size: 12px;">Failed to load pairs. API Down?</div>`;
+    }
+}
+
+
+// --- 4. CORE ALERT CREATION FUNCTION ---
 async function createAlertFromDashboard() {
     const token = getToken();
     if (!token) {
@@ -129,7 +253,7 @@ async function createAlertFromDashboard() {
     if (!alertPhrase) {
         if (messageElement) {
             messageElement.textContent = 'Please enter an alert phrase.';
-            messageElement.className = 'text-warning';
+            messageElement.className = 'text-danger';
         }
         return;
     }
@@ -159,7 +283,7 @@ async function createAlertFromDashboard() {
             let errorMessage = result.error || 'Unknown API Error.';
             if (response.status === 401 || response.status === 422) {
                 errorMessage = "Authentication failed. Token is expired or invalid. Please re-login.";
-                logout(); // Log the user out if the token fails verification
+                logout(); 
             } else if (result.details) {
                 errorMessage += ` (Details: ${result.details})`;
             }
@@ -178,18 +302,20 @@ async function createAlertFromDashboard() {
     }
 }
 
-// --- 2. CORE ALERT FETCHING FUNCTION ---
+// --- 5. CORE ALERT FETCHING FUNCTION ---
 async function fetchAndDisplayAlerts() {
     const token = getToken();
     const alertsList = document.getElementById('alertsList'); 
     
+    if (!alertsList) return; // Only run on index.html
+
     // Check if user is logged in before attempting fetch
     if (!token) {
-        if (alertsList) alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">❌ Not Logged In. Log in to manage alerts.</td></tr>';
+        alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">❌ Not Logged In. Log in to manage alerts.</td></tr>';
         return;
     }
 
-    if (alertsList) alertsList.innerHTML = '<tr><td colspan="6">Loading alerts...</td></tr>'; 
+    alertsList.innerHTML = '<tr><td colspan="6">Loading alerts...</td></tr>'; 
     
     try {
         const response = await fetch(`${API_BASE_URL}/api/my-alerts`, {
@@ -201,23 +327,23 @@ async function fetchAndDisplayAlerts() {
         });
         
         if (response.status === 401 || response.status === 422) {
-             if (alertsList) alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">❌ Authentication Failed. Token is expired or invalid. Please re-login.</td></tr>';
-             logout(); // Token failed verification, force logout
+             alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">❌ Authentication Failed. Token is expired or invalid. Please re-login.</td></tr>';
+             logout(); 
              return;
         }
 
         if (!response.ok) {
             const errorResult = await response.json();
-             if (alertsList) alertsList.innerHTML = `<tr><td colspan="6" class="text-danger">❌ Failed to fetch alerts: ${errorResult.error || 'Server error'}</td></tr>`;
+             alertsList.innerHTML = `<tr><td colspan="6" class="text-danger">❌ Failed to fetch alerts: ${errorResult.error || 'Server error'}</td></tr>`;
              return;
         }
         
         const alerts = await response.json();
         
-        if (alertsList) alertsList.innerHTML = ''; // Clear 'Loading' message
+        alertsList.innerHTML = ''; // Clear 'Loading' message
         
         if (alerts.length === 0) {
-            if (alertsList) alertsList.innerHTML = '<tr><td colspan="6">No active alerts found. Create one above!</td></tr>';
+            alertsList.innerHTML = '<tr><td colspan="6">No active alerts found. Create one above!</td></tr>';
             return;
         }
         
@@ -233,8 +359,9 @@ async function fetchAndDisplayAlerts() {
             let condition = 'N/A';
             if (alert.alert_type === 'PRICE_TARGET') {
                 condition = `${alert.asset} ${alert.operator} ${alert.target_value}`;
-            } else if (alert.alert_type === 'GOLDEN_CROSS' || alert.alert_type === 'DEATH_CROSS') {
-                condition = `${alert.alert_type} on ${alert.asset} ${alert.timeframe}`;
+            } else if (alert.alert_type === 'MA_CROSS') { // Use MA_CROSS as standardized type
+                const crossType = alert.params.condition === 'ABOVE' ? 'Golden Cross' : 'Death Cross';
+                condition = `${crossType} on ${alert.asset} ${alert.timeframe}`;
             } else {
                 condition = alert.alert_type;
             }
@@ -249,18 +376,17 @@ async function fetchAndDisplayAlerts() {
             const deleteButton = document.createElement('button');
             deleteButton.textContent = 'Delete';
             deleteButton.className = 'btn btn-sm btn-danger';
-            // Note: alert.id is safer than alert.alert_id based on previous issues
             deleteButton.onclick = () => deleteAlert(alert.id); 
             deleteCell.appendChild(deleteButton);
         });
 
     } catch (error) {
         console.error('Error fetching alerts:', error);
-        if (alertsList) alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">⚠️ Connection Error. The API is likely sleeping.</td></tr>';
+        alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">⚠️ Connection Error. The API is likely sleeping.</td></tr>';
     }
 }
 
-// --- 3. DELETE ALERT FUNCTION ---
+// --- 6. DELETE ALERT FUNCTION ---
 async function deleteAlert(alertId) {
     const token = getToken();
     if (!token) {
@@ -294,7 +420,7 @@ async function deleteAlert(alertId) {
     }
 }
 
-// --- 4. SUGGESTION FUNCTION ---
+// --- 7. SUGGESTION FUNCTION ---
 function useSuggestion(suggestion) {
     const alertInput = document.getElementById('alertInput');
     if (alertInput) {
@@ -302,28 +428,40 @@ function useSuggestion(suggestion) {
     }
 }
 
-// --- 5. INITIALIZATION ---
+
+// ==========================================================
+// C. INITIALIZATION & EVENT LISTENERS
+// ==========================================================
+
 // Run when the page loads
 document.addEventListener('DOMContentLoaded', () => {
     // 1. Update the UI to show Login or Logout link
     updateAuthStatusUI();
     
-    // 2. Attach click listener to the create button
+    // 2. Attach click listener to the create button (on index.html)
     const createButton = document.getElementById('createAlertButton');
     if (createButton) {
         createButton.addEventListener('click', createAlertFromDashboard);
     }
     
-    // 3. Load existing alerts on startup (only if index.html is loaded)
+    // 3. Load existing alerts and supported pairs on startup (only if index.html is loaded)
     const alertsList = document.getElementById('alertsList');
     if (alertsList) {
         fetchAndDisplayAlerts();
+        fetchAndDisplaySupportedPairs(); // NEW: Load pairs into the sidebar
     }
     
-    // 4. If we are on the login page, we might want to attach event listeners 
-    //    if the button wasn't using onclick=""
+    // 4. Attach listener for login button (on login.html)
+    // The login button already uses onclick="handleLogin()" in your HTML,
+    // so this is a redundant check, but good practice if the HTML changes.
     const loginButton = document.querySelector('.login-btn');
     if (loginButton && !loginButton.onclick) {
-        loginButton.addEventListener('click', handleLogin);
+         loginButton.addEventListener('click', handleLogin);
+    }
+
+    // 5. Attach listener for register button (on register.html - assumed to exist)
+    const registerButton = document.querySelector('.register-btn');
+    if (registerButton && !registerButton.onclick) {
+         registerButton.addEventListener('click', handleRegistration);
     }
 });
