@@ -1,40 +1,82 @@
 // scripts.js
 
 // --- GLOBAL CONFIGURATION ---
+// The API_BASE_URL is still needed to call the new config endpoint.
 const API_BASE_URL = 'https://crypto-pulse-mvp-1.onrender.com';
 const TOKEN_STORAGE_KEY = 'access_token';
 
-// --- JWT HELPER FUNCTIONS ---
+// Supabase client instance will be initialized dynamically
+let supabaseClient = null;
+
+
+// ==========================================================
+// CONFIGURATION & INITIALIZATION
+// ==========================================================
 
 /**
- * Retrieves the JWT token from Local Storage.
- * @returns {string|null} The token or null if not found.
+ * Step 1: Fetches configuration from the Flask backend (where the ENV vars are available).
+ * @returns {Promise<Object>} Object containing Supabase URL and Key.
  */
+async function fetchConfig() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/config`);
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        const config = await response.json();
+        
+        if (!config.SUPABASE_URL || !config.SUPABASE_KEY) {
+            console.error("Configuration missing required Supabase credentials.");
+            throw new Error("Missing Supabase credentials in server configuration.");
+        }
+        return config;
+    } catch (error) {
+        console.error("Failed to fetch configuration from backend:", error);
+        // Fallback or critical error handling
+        return { SUPABASE_URL: null, SUPABASE_KEY: null };
+    }
+}
+
+/**
+ * Step 2: Initializes the Supabase client once the config is available.
+ */
+async function initializeSupabase() {
+    const config = await fetchConfig();
+    
+    if (config.SUPABASE_URL && config.SUPABASE_KEY && typeof supabase !== 'undefined') {
+        try {
+            // Initialize Supabase Client using the fetched environment variables
+            supabaseClient = supabase.createClient(config.SUPABASE_URL, config.SUPABASE_KEY);
+            console.log("Supabase client initialized successfully.");
+        } catch (e) {
+            console.error("Failed to create Supabase client:", e);
+        }
+    } else {
+        console.error("Supabase SDK or configuration not available. OAuth will fail.");
+    }
+}
+
+
+// ==========================================================
+// AUTHENTICATION HELPER FUNCTIONS
+// ==========================================================
+
 function getToken() {
     return localStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
-/**
- * Saves the JWT token to Local Storage.
- * @param {string} token The JWT token to save.
- */
 function saveToken(token) {
     localStorage.setItem(TOKEN_STORAGE_KEY, token);
 }
 
-/**
- * Removes the token and logs the user out.
- */
 function logout() {
+    if (supabaseClient) {
+        supabaseClient.auth.signOut();
+    }
     localStorage.removeItem(TOKEN_STORAGE_KEY);
-    // Reloads the page, which will trigger the UI update to show 'Login'
     location.reload(); 
 }
 
-/**
- * Checks for a token and updates the UI links (Hi Ajit vs. Login/Logout).
- */
 function updateAuthStatusUI() {
+    // ... (This function remains mostly the same, depending on index.html usage) ...
     const token = getToken();
     const authStatusLink = document.getElementById('authStatusLink');
     const greetingMessage = document.getElementById('greetingMessage');
@@ -42,15 +84,13 @@ function updateAuthStatusUI() {
     
     if (authStatusLink) {
         if (token) {
-            // User is logged in
             authStatusLink.innerHTML = `<a href="#" onclick="logout()">Logout</a>`;
-            if (greetingMessage) greetingMessage.textContent = 'Welcome Back, Ajit!';
-            if (alertCreationSection) alertCreationSection.style.display = 'block'; // Show creation section
+            if (greetingMessage) greetingMessage.textContent = 'Welcome Back!'; 
+            if (alertCreationSection) alertCreationSection.style.display = 'block';
         } else {
-            // User is not logged in
             authStatusLink.innerHTML = `<a href="login.html">Login</a>`; 
             if (greetingMessage) greetingMessage.textContent = 'Please Log In';
-            if (alertCreationSection) alertCreationSection.style.display = 'none'; // Hide creation section
+            if (alertCreationSection) alertCreationSection.style.display = 'none';
         }
     }
 }
@@ -60,7 +100,58 @@ function updateAuthStatusUI() {
 // A. AUTHENTICATION HANDLERS
 // ==========================================================
 
-// --- 1. LOGIN FUNCTION (Used by login.html) ---
+/**
+ * NEW: Handles Google OAuth login and registration.
+ */
+async function handleGoogleLogin() {
+    const messageElement = document.getElementById('loginMessage');
+    
+    if (!supabaseClient) {
+        if (messageElement) {
+            messageElement.textContent = '❌ Supabase client not ready. Please try refreshing.';
+            messageElement.className = 'text-danger';
+        }
+        return;
+    }
+
+    if (messageElement) {
+        messageElement.textContent = 'Redirecting to Google...';
+        messageElement.className = 'text-info';
+    }
+
+    try {
+        const { data, error } = await supabaseClient.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                // Redirects back to your main dashboard after successful login/registration
+                redirectTo: `${window.location.origin}/index.html` 
+            }
+        });
+
+        if (error) {
+            console.error('Google Sign-In Error:', error);
+            if (messageElement) {
+                messageElement.textContent = `❌ Google Sign-In Failed: ${error.message}`;
+                messageElement.className = 'text-danger';
+            }
+        } else if (data && data.url) {
+            // Success: Redirect the user to the Google login screen
+            window.location.href = data.url;
+        }
+
+    } catch (error) {
+        console.error('Supabase Client Error:', error);
+        if (messageElement) {
+            messageElement.textContent = '⚠️ Failed to start Google login process.';
+            messageElement.className = 'text-danger';
+        }
+    }
+}
+
+
+/**
+ * 1. Handles traditional Email/Password Login (Kept for compatibility).
+ */
 async function handleLogin() {
     const email = document.getElementById('loginEmail')?.value;
     const password = document.getElementById('loginPassword')?.value;
@@ -76,7 +167,7 @@ async function handleLogin() {
     
     if (messageElement) {
         messageElement.textContent = 'Logging in...';
-        messageElement.className = '';
+        messageElement.className = 'text-info';
     }
 
     try {
@@ -89,18 +180,14 @@ async function handleLogin() {
         const result = await response.json();
 
         if (response.ok) {
-            // SUCCESS! Save the token and redirect to the dashboard.
             saveToken(result.access_token);
             if (messageElement) {
                 messageElement.textContent = 'Login successful! Redirecting...';
                 messageElement.className = 'text-success';
             }
-            
-            // Redirect to your main dashboard page
             window.location.href = 'index.html'; 
 
         } else {
-            // Login failed (e.g., incorrect credentials)
             let errorMessage = result.error || 'Invalid credentials';
             if (messageElement) {
                 messageElement.textContent = `❌ Login Failed: ${errorMessage}`;
@@ -118,7 +205,9 @@ async function handleLogin() {
 }
 
 
-// --- 2. REGISTRATION FUNCTION (Used by register.html - which you need to create) ---
+/**
+ * 2. Handles Registration (Assumed to be on register.html).
+ */
 async function handleRegistration() {
     const email = document.getElementById('registerEmail')?.value;
     const password = document.getElementById('registerPassword')?.value;
@@ -143,7 +232,7 @@ async function handleRegistration() {
     
     if (messageElement) {
         messageElement.textContent = 'Registering...';
-        messageElement.className = '';
+        messageElement.className = 'text-info';
     }
 
     try {
@@ -156,7 +245,6 @@ async function handleRegistration() {
         const result = await response.json();
 
         if (response.ok) {
-            // Success! Supabase sends email confirmation.
             if (messageElement) {
                 messageElement.textContent = `✅ Registration Successful! Check email for confirmation. Redirecting to login...`;
                 messageElement.className = 'text-success';
@@ -166,7 +254,6 @@ async function handleRegistration() {
             }, 3000);
 
         } else {
-            // Registration failed (e.g., user exists, weak password)
             let errorMessage = result.error || 'Registration failed.';
             if (messageElement) {
                 messageElement.textContent = `❌ Registration Failed: ${errorMessage}`;
@@ -185,51 +272,63 @@ async function handleRegistration() {
 
 
 // ==========================================================
-// B. MARKET AND ALERT HANDLERS
+// B. MARKET AND ALERT HANDLERS (Unchanged)
 // ==========================================================
 
 // --- 3. FETCH & DISPLAY SUPPORTED PAIRS (FOR SIDEBAR) ---
 async function fetchAndDisplaySupportedPairs() {
-    const headerElement = document.querySelector('.asset-list-header h3');
+    const headerElement = document.getElementById('sidebarHeader');
     const assetListElement = document.getElementById('live-asset-list');
 
-    // Only run if the elements exist (i.e., we are on index.html)
     if (!headerElement || !assetListElement) return;
 
     try {
-        const response = await fetch(`${API_BASE_URL}/api/supported-pairs`);
+        const pairsResponse = await fetch(`${API_BASE_URL}/api/supported-pairs`);
+        if (!pairsResponse.ok) throw new Error(`HTTP error! status: ${pairsResponse.status}`);
+        const pairsData = await pairsResponse.json();
+        const supportedPairs = pairsData.supported_pairs;
         
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        const summaryResponse = await fetch(`${API_BASE_URL}/api/market-summary`);
+        const marketSummary = await summaryResponse.json();
+        const marketDataMap = new Map();
+        
+        if (Array.isArray(marketSummary)) {
+             marketSummary.forEach(item => {
+                 marketDataMap.set(item.symbol, item);
+             });
         }
-
-        const data = await response.json();
-        const pairs = data.supported_pairs;
-        const count = data.count;
-
-        // 1. Update the header text
-        headerElement.textContent = `Supported Pairs (${count})`;
-
-        // 2. Clear the placeholder pairs
+        
+        headerElement.textContent = `Supported Pairs (${supportedPairs.length})`;
         assetListElement.innerHTML = ''; 
 
-        // 3. Populate the list with fetched pairs
-        pairs.forEach(symbol => {
+        supportedPairs.forEach(symbol => {
+            const data = marketDataMap.get(symbol);
+            
+            const price = data 
+                ? data.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) 
+                : '---';
+                
+            const changePercent = data 
+                ? (data.change_percent / 100).toLocaleString(undefined, { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
+                : 'N/A';
+                
+            const changeClass = data ? (data.change_percent >= 0 ? 'positive' : 'negative') : '';
+
             const item = document.createElement('div');
             item.className = 'asset-item';
-            // Placeholder data for price/change (real-time data would require websockets)
+            
             item.innerHTML = `
                 <span class="ticker">${symbol}</span>
-                <span class="change positive">N/A</span> 
-                <span class="price">--.--</span>
+                <span class="change ${changeClass}">${changePercent}</span> 
+                <span class="price">${price}</span>
             `;
             assetListElement.appendChild(item);
         });
 
     } catch (error) {
-        console.error("Failed to fetch supported pairs:", error);
+        console.error("Failed to fetch market data:", error);
         headerElement.textContent = `Supported Pairs (Error)`;
-        assetListElement.innerHTML = `<div style="padding: 10px; color: red; font-size: 12px;">Failed to load pairs. API Down?</div>`;
+        assetListElement.innerHTML = `<div style="padding: 10px; color: red; font-size: 12px;">Failed to load data. API Down?</div>`;
     }
 }
 
@@ -307,15 +406,14 @@ async function fetchAndDisplayAlerts() {
     const token = getToken();
     const alertsList = document.getElementById('alertsList'); 
     
-    if (!alertsList) return; // Only run on index.html
+    if (!alertsList) return;
 
-    // Check if user is logged in before attempting fetch
     if (!token) {
-        alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">❌ Not Logged In. Log in to manage alerts.</td></tr>';
+        alertsList.innerHTML = '<tr><td colspan="5" class="text-danger">❌ Not Logged In. Log in to manage alerts.</td></tr>';
         return;
     }
 
-    alertsList.innerHTML = '<tr><td colspan="6">Loading alerts...</td></tr>'; 
+    alertsList.innerHTML = '<tr><td colspan="5">Loading alerts...</td></tr>'; 
     
     try {
         const response = await fetch(`${API_BASE_URL}/api/my-alerts`, {
@@ -327,52 +425,49 @@ async function fetchAndDisplayAlerts() {
         });
         
         if (response.status === 401 || response.status === 422) {
-             alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">❌ Authentication Failed. Token is expired or invalid. Please re-login.</td></tr>';
+             alertsList.innerHTML = '<tr><td colspan="5" class="text-danger">❌ Authentication Failed. Token is expired or invalid. Please re-login.</td></tr>';
              logout(); 
              return;
         }
 
         if (!response.ok) {
             const errorResult = await response.json();
-             alertsList.innerHTML = `<tr><td colspan="6" class="text-danger">❌ Failed to fetch alerts: ${errorResult.error || 'Server error'}</td></tr>`;
+             alertsList.innerHTML = `<tr><td colspan="5" class="text-danger">❌ Failed to fetch alerts: ${errorResult.error || 'Server error'}</td></tr>`;
              return;
         }
         
         const alerts = await response.json();
         
-        alertsList.innerHTML = ''; // Clear 'Loading' message
+        alertsList.innerHTML = '';
         
         if (alerts.length === 0) {
-            alertsList.innerHTML = '<tr><td colspan="6">No active alerts found. Create one above!</td></tr>';
+            alertsList.innerHTML = '<tr><td colspan="5">No active alerts found. Create one above!</td></tr>';
             return;
         }
         
-        // Loop through alerts and populate the table
         alerts.forEach(alert => {
             const row = alertsList.insertRow();
-            
-            row.insertCell(0).textContent = alert.id || 'N/A'; // ID
-            row.insertCell(1).textContent = alert.asset || 'N/A'; // Asset
-            row.insertCell(2).textContent = alert.timeframe || 'N/A'; // Timeframe
+            let cellIndex = 0;
 
-            // Condition Logic
+            row.insertCell(cellIndex++).textContent = alert.asset || 'N/A'; 
+            row.insertCell(cellIndex++).textContent = alert.timeframe || 'N/A'; 
+
             let condition = 'N/A';
             if (alert.alert_type === 'PRICE_TARGET') {
                 condition = `${alert.asset} ${alert.operator} ${alert.target_value}`;
-            } else if (alert.alert_type === 'MA_CROSS') { // Use MA_CROSS as standardized type
+            } else if (alert.alert_type === 'MA_CROSS') {
                 const crossType = alert.params.condition === 'ABOVE' ? 'Golden Cross' : 'Death Cross';
                 condition = `${crossType} on ${alert.asset} ${alert.timeframe}`;
             } else {
                 condition = alert.alert_type;
             }
-            row.insertCell(3).textContent = condition; 
+            row.insertCell(cellIndex++).textContent = condition; 
             
-            // Status Cell
-            const statusCell = row.insertCell(4);
+            const statusCell = row.insertCell(cellIndex++);
             statusCell.textContent = alert.status || 'Active'; 
             statusCell.className = alert.status === 'ACTIVE' ? 'text-success' : 'text-danger';
 
-            const deleteCell = row.insertCell(5); // Action column
+            const deleteCell = row.insertCell(cellIndex++); 
             const deleteButton = document.createElement('button');
             deleteButton.textContent = 'Delete';
             deleteButton.className = 'btn btn-sm btn-danger';
@@ -382,7 +477,7 @@ async function fetchAndDisplayAlerts() {
 
     } catch (error) {
         console.error('Error fetching alerts:', error);
-        alertsList.innerHTML = '<tr><td colspan="6" class="text-danger">⚠️ Connection Error. The API is likely sleeping.</td></tr>';
+        alertsList.innerHTML = '<tr><td colspan="5" class="text-danger">⚠️ Connection Error. The API is likely sleeping.</td></tr>';
     }
 }
 
@@ -413,6 +508,7 @@ async function deleteAlert(alertId) {
             await fetchAndDisplayAlerts(); 
         } else {
             alert(`Error deleting alert: ${result.error || 'Unknown error'}`);
+            console.error('Delete API Error:', result.error);
         }
     } catch (error) {
         console.error('Error deleting alert:', error);
@@ -430,38 +526,74 @@ function useSuggestion(suggestion) {
 
 
 // ==========================================================
-// C. INITIALIZATION & EVENT LISTENERS
+// C. DOM CONTENT LOADED & EVENT LISTENERS
 // ==========================================================
 
-// Run when the page loads
-document.addEventListener('DOMContentLoaded', () => {
-    // 1. Update the UI to show Login or Logout link
+// Function to check for and process a Supabase session after redirect
+async function checkSupabaseSession() {
+    // Only proceed if the client is ready
+    if (!supabaseClient) {
+        // Wait for initialization to complete if it's still running
+        await new Promise(resolve => setTimeout(resolve, 500)); // Basic wait
+        if (!supabaseClient) return; // Exit if still not initialized
+    }
+
+    try {
+        const { data: { session }, error } = await supabaseClient.auth.getSession();
+        
+        if (error) throw error;
+
+        if (session) {
+            // 1. Save the new JWT token from Supabase to match your Flask backend's expected structure
+            saveToken(session.access_token);
+            
+            // 2. Redirect to the main dashboard
+            if (window.location.pathname.endsWith('login.html') || window.location.pathname === '/') {
+                window.location.href = 'index.html';
+            } else {
+                // For index.html, just update the UI
+                updateAuthStatusUI();
+                fetchAndDisplayAlerts();
+            }
+        }
+    } catch (e) {
+        console.error("Error getting Supabase session:", e);
+    }
+}
+
+
+document.addEventListener('DOMContentLoaded', async () => {
+    // 1. First, initialize the Supabase client by fetching config from the backend
+    await initializeSupabase(); 
+
+    // 2. Process potential Supabase session (Crucial for OAuth redirect)
+    await checkSupabaseSession(); 
+
+    // 3. Update the UI to show Login or Logout link
     updateAuthStatusUI();
     
-    // 2. Attach click listener to the create button (on index.html)
+    // 4. Attach click listener to the Google login button (on login.html)
+    const googleLoginButton = document.getElementById('googleLoginButton');
+    if (googleLoginButton) {
+        googleLoginButton.addEventListener('click', handleGoogleLogin);
+    }
+    
+    // 5. Attach click listener to the create button (on index.html)
     const createButton = document.getElementById('createAlertButton');
     if (createButton) {
         createButton.addEventListener('click', createAlertFromDashboard);
     }
     
-    // 3. Load existing alerts and supported pairs on startup (only if index.html is loaded)
+    // 6. Load existing alerts and supported pairs on startup (only if index.html is loaded)
     const alertsList = document.getElementById('alertsList');
     if (alertsList) {
         fetchAndDisplayAlerts();
-        fetchAndDisplaySupportedPairs(); // NEW: Load pairs into the sidebar
+        fetchAndDisplaySupportedPairs();
     }
     
-    // 4. Attach listener for login button (on login.html)
-    // The login button already uses onclick="handleLogin()" in your HTML,
-    // so this is a redundant check, but good practice if the HTML changes.
-    const loginButton = document.querySelector('.login-btn');
-    if (loginButton && !loginButton.onclick) {
-         loginButton.addEventListener('click', handleLogin);
-    }
-
-    // 5. Attach listener for register button (on register.html - assumed to exist)
+    // 7. Attach listener for register button (on register.html - assumed to exist)
     const registerButton = document.querySelector('.register-btn');
     if (registerButton && !registerButton.onclick) {
-         registerButton.addEventListener('click', handleRegistration);
+        registerButton.addEventListener('click', handleRegistration);
     }
 });

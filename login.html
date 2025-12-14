@@ -11,7 +11,7 @@
             display: flex; 
             justify-content: center; 
             align-items: center; 
-            min-height: 100vh; /* Use min-height for better compatibility */
+            min-height: 100vh;
             background-color: #f4f4f9; 
             margin: 0;
             font-family: sans-serif;
@@ -34,7 +34,7 @@
             margin-bottom: 15px; 
             border: 1px solid #ccc; 
             border-radius: 4px; 
-            box-sizing: border-box; /* Ensures padding doesn't affect total width */
+            box-sizing: border-box;
         }
         .login-btn { 
             width: 100%; 
@@ -50,6 +50,50 @@
             background-color: #0056b3; 
         }
         
+        /* New styles for Google button */
+        .google-btn {
+            width: 100%; 
+            padding: 10px; 
+            margin-top: 20px;
+            background-color: #ffffff; 
+            color: #444; 
+            border: 1px solid #ccc; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .google-btn:hover {
+            background-color: #f0f0f0;
+        }
+        .google-btn img {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+        }
+        .separator {
+            margin: 20px 0;
+            color: #aaa;
+            position: relative;
+            text-align: center;
+        }
+        .separator::before, .separator::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 40%;
+            height: 1px;
+            background: #ddd;
+        }
+        .separator::before {
+            left: 0;
+        }
+        .separator::after {
+            right: 0;
+        }
+
         /* Styles for JavaScript messages */
         .text-danger { color: #dc3545; }
         .text-success { color: #28a745; }
@@ -61,16 +105,24 @@
     <div class="login-container">
         <h1>Crypto Pulse Login</h1>
         
+        <button id="googleLoginButton" class="google-btn">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/4/4a/Logo_and_wordmark_of_Google.svg" alt="Google Icon">
+            Sign in with Google
+        </button>
+
+        <div class="separator">OR</div>
+
         <input type="email" id="loginEmail" class="login-input" placeholder="Email (e.g., user@example.com)" required>
         <input type="password" id="loginPassword" class="login-input" placeholder="Password" required>
         
-        <button class="login-btn" onclick="handleLogin()">Login</button>
+        <button class="login-btn" onclick="handleLogin()">Login with Email</button>
         
         <p id="loginMessage" class="text-info"></p>
         
         <p><small>Don't have an account? <a href="register.html">Register here</a></small></p>
 
     </div>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="scripts.js"></script>
 </body>
 </html>

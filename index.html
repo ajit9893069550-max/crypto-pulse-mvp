@@ -12,14 +12,13 @@
         
         <aside class="sidebar">
             <div class="asset-list-header">
-                <h3>Default (11)</h3> 
+                <h3 id="sidebarHeader">Supported Pairs (Loading...)</h3> 
                 <a href="#" class="group-link">+ New group</a>
             </div>
             
             <div id="live-asset-list" class="asset-list">
-                
                 <div class="asset-item">
-                    <span class="ticker">Loading pairs...</span>
+                    <span class="ticker">Loading data...</span>
                 </div>
             </div>
         </aside>
@@ -31,7 +30,7 @@
                     <span style="font-size: 24px;">Crypto Pulse</span>
                 </div>
                 <div class="nav-links">
-                    <a href="#">Dashboard</a>
+                    <a href="index.html">Dashboard</a>
                     <a href="#">+ Alert</a>
                     <span id="authStatusLink">
                         </span>
@@ -42,7 +41,7 @@
                 
                 <div class="alert-panel-wrapper">
                     <div class="greeting">
-                        <h1 id="greetingMessage">Hi Ajit Pratap</h1>
+                        <h1 id="greetingMessage">Please Log In</h1>
                     </div>
                     
                     <div id="alertCreationSection" style="display: none;">
@@ -64,17 +63,17 @@
                             </div>
                         </div>
                     </div>
-                    </div>
+                </div>
                 
                 <section class="alert-management-section">
                     <div class="management-header">
                         <h2>⚡ My Active Alerts</h2>
-                        <button onclick="fetchAndDisplayAlerts()" class="refresh-alerts-btn">Refresh List</button>
+                        <button onclick="fetchAndDisplayAlerts()" class="refresh-alerts-btn">Refresh List</button> 
                     </div>
+                    
                     <table id="myAlertsTable">
                         <thead>
                             <tr>
-                                <th>ID</th>
                                 <th>Asset</th>
                                 <th>Timeframe</th>
                                 <th>Condition</th>
@@ -84,9 +83,10 @@
                         </thead>
                         
                         <tbody id="alertsList">
-                             </tbody>
+                            </tbody>
                     </table>
-                    <p id="noAlertsMessage" style="display:none; margin-top: 20px;">You currently have no active alerts.</p>
+                    
+                    <p id="noAlertsMessage" style="display: block; margin-top: 20px;">Not Logged In. Log in to manage alerts.</p>
                 </section>
             </section>
 

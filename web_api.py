@@ -3,7 +3,7 @@ import os
 import json
 import logging
 import asyncio # Required for running CCXT async calls
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone 
 from flask import Flask, request, jsonify
 from flask_cors import CORS 
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, JWTManager
@@ -16,20 +16,22 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Supabase Configuration ---
+# Read from environment variables set in Render
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    raise EnvironmentError(
-        "FATAL: SUPABASE_URL and SUPABASE_KEY environment variables must be set."
-    )
+    # Do not raise a FATAL error here, as the Flask app might still need to run
+    # to serve the /api/config endpoint even if the Supabase client init fails.
+    # However, we must log a critical warning.
+    logger.critical("FATAL: SUPABASE_URL and SUPABASE_KEY environment variables must be set.")
 
 try:
-    # Initialize the Supabase Client
+    # Initialize the Supabase Client (This will fail if SUPABASE_URL/KEY are missing)
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {e}")
-    raise
+    # The app will continue to run, but auth routes relying on 'supabase' will fail.
 
 app = Flask(__name__)
 
@@ -78,8 +80,6 @@ def parse_alert_phrase(phrase):
     phrase = phrase.upper().strip()
     
     # List of supported assets for parsing (matching SUPPORTED_TOKENS list)
-    # Note: Added LTC just in case, but you should stick to the 7 tokens above. 
-    # For now, I'll use the hardcoded regex that matches your intent.
     SUPPORTED_ASSETS_REGEX = r'(BTC|ETH|SOL|BNB|ADA|DOGE|XRP)'
     
     # 1. Check for Complex MA Cross Alerts (50 MA / 200 MA)
@@ -144,20 +144,26 @@ def parse_alert_phrase(phrase):
 
 def fetch_user_alerts(user_id):
     """Fetches ACTIVE alerts from the database for the given user_id."""
+    if not supabase: return []
     response = supabase.table('alerts').select('*').eq('user_id', user_id).eq('status', 'ACTIVE').execute()
     return response.data
 
 def deactivate_alert(alert_id, user_id, status='DELETED'):
-    """Deactivates alert after verifying ownership."""
+    """
+    Deactivates alert after verifying ownership.
+    Use UTC time for database consistency.
+    """
+    if not supabase: return False
     response = supabase.table('alerts').update({
         'status': status, 
-        'updated_at': datetime.now().isoformat()
+        # Using UTC for standardized timestamp
+        'updated_at': datetime.now(timezone.utc).isoformat() 
     }).eq('id', alert_id).eq('user_id', user_id).execute()
 
     return len(response.data) > 0 # Returns True if a row was updated
     
 # =================================================================
-#                         API ROUTES
+#                         API ROUTES
 # =================================================================
 
 # --- 0. Root Route / Health Check ---
@@ -169,9 +175,33 @@ def index():
         "timestamp": datetime.now().isoformat()
     }), 200
 
+# --- NEW ROUTE: 9. GET /api/config ---
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """
+    Exposes non-sensitive environment variables to the frontend.
+    The Supabase Anonymous Key (SUPABASE_KEY) is PUBLIC and safe to expose.
+    """
+    supabase_url = os.environ.get('SUPABASE_URL')
+    supabase_key = os.environ.get('SUPABASE_KEY')
+
+    if not supabase_url or not supabase_key:
+        logger.error("Configuration request failed: Supabase credentials missing on server.")
+        return jsonify({
+            "error": "Supabase configuration missing on server.",
+            "details": "Check if SUPABASE_URL and SUPABASE_KEY are set in Render environment variables."
+        }), 500
+
+    return jsonify({
+        "SUPABASE_URL": supabase_url,
+        "SUPABASE_KEY": supabase_key
+    }), 200
+
+
 # --- 1. POST /api/register ---
 @app.route('/api/register', methods=['POST'])
 def register():
+    if not supabase: return jsonify({"error": "Auth service is unavailable."}), 503
     data = request.get_json()
     email = data.get('email')
     password = data.get('password')
@@ -201,6 +231,7 @@ def register():
 # --- 2. POST /api/login ---
 @app.route('/api/login', methods=['POST'])
 def login():
+    if not supabase: return jsonify({"error": "Auth service is unavailable."}), 503
     data = request.get_json()
     email = data.get('email')
     password = data.get('password')
@@ -236,6 +267,7 @@ def login():
 @jwt_required()
 def manual_telegram_link():
     """Manually links a Telegram User ID to the authenticated user's account."""
+    if not supabase: return jsonify({"error": "Database service is unavailable."}), 503
     try:
         user_uuid = get_jwt_identity()
         data = request.get_json()
@@ -272,6 +304,7 @@ def manual_telegram_link():
 @jwt_required()
 def create_alert():
     """Endpoint for the web dashboard to create a new alert using the parser."""
+    if not supabase: return jsonify({"error": "Database service is unavailable."}), 503
     user_id = get_jwt_identity() 
 
     try:
@@ -308,6 +341,7 @@ def create_alert():
 @jwt_required()
 def get_my_alerts():
     """Endpoint to fetch all ACTIVE alerts for the logged-in user."""
+    if not supabase: return jsonify({"error": "Database service is unavailable."}), 503
     user_id = get_jwt_identity()
     
     try:
@@ -331,6 +365,7 @@ def get_my_alerts():
 @jwt_required()
 def delete_alert():
     """Endpoint to logically delete (deactivate) an alert by ID, verified against the user ID."""
+    if not supabase: return jsonify({"error": "Database service is unavailable."}), 503
     user_id = get_jwt_identity()
     
     try:
@@ -344,6 +379,7 @@ def delete_alert():
             logger.info(f"Alert ID {alert_id} logically deleted by user {user_id}.")
             return jsonify({"message": f"Alert ID {alert_id} deleted successfully."}), 200
         else:
+            # This returns if the alert_id doesn't exist or doesn't belong to the user
             return jsonify({"error": f"Failed to delete alert ID {alert_id}. Alert not found or does not belong to user."}), 404 
 
     except Exception as e:
@@ -399,6 +435,54 @@ def get_supported_pairs():
     except Exception as e:
         logger.error(f"Error in get_supported_pairs route: {e}")
         return jsonify({"error": "Internal server error during market fetch."}), 500
+
+# --- 8. GET /api/market-summary (FOR PRICE/CHANGE) ---
+@app.route('/api/market-summary', methods=['GET'])
+def get_market_summary():
+    """
+    Fetches the current price and 24h change for all supported pairs.
+    """
+    # Use the same list of supported tokens defined earlier
+    global SUPPORTED_TOKENS 
+    
+    async def fetch_tickers_async():
+        exchange = await get_exchange()
+        try:
+            # Create a list of the full pair symbols (e.g., ['BTC/USDT', 'ETH/USDT', ...])
+            symbols = [f'{token}/USDT' for token in SUPPORTED_TOKENS]
+            
+            # Fetch specific tickers only
+            tickers = await exchange.fetch_tickers(symbols) 
+            await exchange.close()
+            
+            # Format the output for the frontend
+            summary = []
+            for symbol in symbols:
+                ticker = tickers.get(symbol)
+                if ticker:
+                    summary.append({
+                        'symbol': ticker['symbol'],
+                        'price': ticker['last'],
+                        'change_percent': ticker['percentage'],
+                        'change_absolute': ticker['change']
+                    })
+            return summary
+            
+        except Exception as e:
+            logger.error(f"CCXT fetch_tickers error: {e}")
+            return {"error": "Failed to fetch market data.", "details": str(e)}, 500
+
+    try:
+        result = asyncio.run(fetch_tickers_async())
+        
+        if isinstance(result, tuple) and len(result) == 2 and 'error' in result[0]:
+             return jsonify(result[0]), result[1] 
+
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"Error in get_market_summary route: {e}")
+        return jsonify({"error": "Internal server error during market summary fetch."}), 500
 
 
 # --- PRODUCTION EXECUTION ---
