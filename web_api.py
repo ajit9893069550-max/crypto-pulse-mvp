@@ -56,6 +56,13 @@ async def get_exchange():
     return ccxt.__getattribute__(EXCHANGE_ID)({'enableRateLimit': True})
 
 
+# -----------------------------------------------------------------
+# --- SUPPORTED ASSETS (MUST MATCH PARSER) ---
+# This list is used to filter market data before display on the dashboard.
+SUPPORTED_TOKENS = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE'] 
+# -----------------------------------------------------------------
+
+
 # --- Helper Functions ---
 def default_serializer(obj):
     """Custom JSON serializer for objects not serializable by default json code"""
@@ -70,8 +77,10 @@ def parse_alert_phrase(phrase):
     """
     phrase = phrase.upper().strip()
     
-    # List of supported assets for parsing (added USDT)
-    SUPPORTED_ASSETS = r'(BTC|ETH|SOL|LTC|BNB|ADA|XRP|USDT)'
+    # List of supported assets for parsing (matching SUPPORTED_TOKENS list)
+    # Note: Added LTC just in case, but you should stick to the 7 tokens above. 
+    # For now, I'll use the hardcoded regex that matches your intent.
+    SUPPORTED_ASSETS_REGEX = r'(BTC|ETH|SOL|BNB|ADA|DOGE|XRP)'
     
     # 1. Check for Complex MA Cross Alerts (50 MA / 200 MA)
     if 'CROSS' in phrase:
@@ -87,8 +96,7 @@ def parse_alert_phrase(phrase):
             raise ValueError("Crossover alert must specify 'Golden Cross' or 'Death Cross'.")
             
         # Regex to find asset (e.g., BTC, ETH) and timeframe (e.g., 1D, 4H)
-        # Uses the improved SUPPORTED_ASSETS regex
-        match = re.search(f'{SUPPORTED_ASSETS}\\s*.*?(\\d+[HDWM])', phrase)
+        match = re.search(f'{SUPPORTED_ASSETS_REGEX}\\s*.*?(\\d+[HDWM])', phrase)
         
         if match:
             asset = match.group(1)
@@ -111,8 +119,7 @@ def parse_alert_phrase(phrase):
             raise ValueError("Crossover alert requires an asset (e.g., BTC) and a timeframe (e.g., 1D).")
             
     # 2. Check for Simple Price Alerts
-    # Uses the improved SUPPORTED_ASSETS regex
-    match = re.search(f'{SUPPORTED_ASSETS}\\s*([<>])\\s*([\\d,.]+)', phrase)
+    match = re.search(f'{SUPPORTED_ASSETS_REGEX}\\s*([<>])\\s*([\\d,.]+)', phrase)
     if match:
         asset = match.group(1)
         operator = match.group(2)
@@ -137,7 +144,6 @@ def parse_alert_phrase(phrase):
 
 def fetch_user_alerts(user_id):
     """Fetches ACTIVE alerts from the database for the given user_id."""
-    # Ensure RLS policy allows this operation for the 'authenticated' role
     response = supabase.table('alerts').select('*').eq('user_id', user_id).eq('status', 'ACTIVE').execute()
     return response.data
 
@@ -151,7 +157,7 @@ def deactivate_alert(alert_id, user_id, status='DELETED'):
     return len(response.data) > 0 # Returns True if a row was updated
     
 # =================================================================
-#                         API ROUTES
+#                         API ROUTES
 # =================================================================
 
 # --- 0. Root Route / Health Check ---
@@ -184,9 +190,7 @@ def register():
             return jsonify({"message": "User registered successfully! Check email for confirmation.", "user_id": response.user.id}), 201
         
     except AuthApiError as e:
-        # Supabase often returns 409 (Conflict) or 400 (Bad Request) for "user already exists" or "weak password"
         logger.warning(f"Registration failed for {email}: {e.message}")
-        # Return 409 for conflict, otherwise 400 or 500
         status_code = 409 if 'already exists' in e.message.lower() else 400
         return jsonify({"error": f"Registration failed: {e.message}"}), status_code
     except Exception as e:
@@ -220,7 +224,6 @@ def login():
             return jsonify({"error": "Invalid email or password."}), 401
             
     except AuthApiError as e:
-        # Catch common auth errors like invalid credentials
         logger.warning(f"Login failed for {email}: {e.message}")
         return jsonify({"error": "Invalid email or password."}), 401
     except Exception as e:
@@ -347,10 +350,13 @@ def delete_alert():
         logger.error(f"Error in delete_alert API for user {user_id}: {e}")
         return jsonify({"error": "Internal server error.", "details": str(e)}), 500
 
-# --- 7. GET /api/supported-pairs (NEW) ---
+# --- 7. GET /api/supported-pairs (FIXED FILTERING) ---
 @app.route('/api/supported-pairs', methods=['GET'])
 def get_supported_pairs():
-    """Fetches and returns the list of all trading pairs (markets) from the exchange."""
+    """
+    Fetches and returns the list of ONLY the trading pairs supported 
+    by the parser (BTC, ETH, etc., paired with USDT).
+    """
     
     # We must run the CCXT call asynchronously
     async def fetch_markets_async():
@@ -360,17 +366,20 @@ def get_supported_pairs():
             markets = await exchange.fetch_markets() 
             await exchange.close() # Close the connection
             
-            # Extract symbol, filtering for SPOT markets and USDT pairs
+            # --- CRITICAL FILTERING LOGIC ---
+            # 1. Look for pairs ending in '/USDT'
+            # 2. Check if the base token (e.g., BTC from BTC/USDT) is in our SUPPORTED_TOKENS list
             symbols = sorted([
                 m['symbol'] 
                 for m in markets 
-                if m.get('spot') and '/USDT' in m['symbol']
+                if m.get('spot') and 
+                   m['symbol'].endswith('/USDT') and
+                   m['symbol'].split('/')[0] in SUPPORTED_TOKENS
             ])
             return symbols
             
         except Exception as e:
             logger.error(f"CCXT fetch_markets error: {e}")
-            # Return error message and status code for easy handling
             return {"error": "Failed to fetch markets from exchange.", "details": str(e)}, 500
 
     try:
