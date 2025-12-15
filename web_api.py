@@ -344,11 +344,25 @@ def create_alert():
 @app.route('/api/my-alerts', methods=['GET'])
 @jwt_required()
 def get_my_alerts():
-    """Endpoint to fetch all ACTIVE alerts for the logged-in user."""
+    """Endpoint to fetch all ACTIVE alerts for the logged-in user, and ENSURE their public profile exists."""
     if not supabase: return jsonify({"error": "Database service is unavailable."}), 503
     user_id = get_jwt_identity()
     
     try:
+        # 1. CRITICAL: CHECK AND CREATE USER PROFILE IF MISSING
+        # Check if a user entry exists in your public.users table (replace 'users' with 'profiles' if needed)
+        profile_response = supabase.table('users').select('user_uuid').eq('user_uuid', user_id).limit(1).execute()
+        
+        # If no profile found, create one immediately (This handles Google Sign-in)
+        if not profile_response.data:
+            logger.info(f"Creating missing public profile for new user: {user_id}")
+            # Ensure the column name here ('user_uuid') matches your table schema
+            supabase.table('users').insert({
+                'user_uuid': user_id, 
+                'created_at': datetime.now(timezone.utc).isoformat()
+            }).execute()
+        
+        # 2. Proceed to fetch alerts
         alerts = fetch_user_alerts(user_id) 
         json_alerts = json.dumps(alerts, default=default_serializer) 
         
