@@ -38,7 +38,7 @@ app.config["JWT_SECRET_KEY"] = os.environ.get("SUPABASE_JWT_SECRET")
 
 if not app.config["JWT_SECRET_KEY"]:
     raise EnvironmentError(
-        "FATAL: SUPABASE_JWT_SECRET environment variable must be set (Key used: SUPABASE_JWT_SECRET)."
+        "FATAL: SUPABASE_JWT_SECRET environment variable not set. Application cannot validate tokens."
     )
 
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
