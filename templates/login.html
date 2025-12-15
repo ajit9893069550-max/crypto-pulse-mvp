@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Crypto Pulse</title>
-    <link rel="stylesheet" href="styles.css">
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    
     <style>
         /* Simple inline CSS for the login container */
         body { 
@@ -119,10 +121,12 @@
         
         <p id="loginMessage" class="text-info"></p>
         
-        <p><small>Don't have an account? <a href="register.html">Register here</a></small></p>
+        <p><small>Don't have an account? <a href="{{ url_for('register_page') }}">Register here</a></small></p>
 
     </div>
+    
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="scripts.js"></script>
+    
+    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
 </body>
 </html>

@@ -1,9 +1,9 @@
 // scripts.js
 
 // --- GLOBAL CONFIGURATION ---
-// The API_BASE_URL is still needed to call the new config endpoint.
-const API_BASE_URL = 'https://crypto-pulse-mvp-1.onrender.com';
+const API_BASE_URL = 'https://crypto-pulse-dashboard1.onrender.com'; 
 const TOKEN_STORAGE_KEY = 'access_token';
+const USER_ID_STORAGE_KEY = 'user_id'; 
 
 // Supabase client instance will be initialized dynamically
 let supabaseClient = null;
@@ -14,7 +14,7 @@ let supabaseClient = null;
 // ==========================================================
 
 /**
- * Step 1: Fetches configuration from the Flask backend (where the ENV vars are available).
+ * Step 1: Fetches configuration from the Flask backend.
  * @returns {Promise<Object>} Object containing Supabase URL and Key.
  */
 async function fetchConfig() {
@@ -30,7 +30,6 @@ async function fetchConfig() {
         return config;
     } catch (error) {
         console.error("Failed to fetch configuration from backend:", error);
-        // Fallback or critical error handling
         return { SUPABASE_URL: null, SUPABASE_KEY: null };
     }
 }
@@ -63,34 +62,62 @@ function getToken() {
     return localStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
-function saveToken(token) {
-    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+function getUserId() {
+    return localStorage.getItem(USER_ID_STORAGE_KEY);
 }
 
-function logout() {
-    if (supabaseClient) {
-        supabaseClient.auth.signOut();
+/**
+ * Saves both the access token and the user's Supabase UUID.
+ */
+function saveToken(token, userId = null) {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    if (userId) {
+        localStorage.setItem(USER_ID_STORAGE_KEY, userId); 
     }
+}
+
+/**
+ * Clears tokens and redirects, ensuring the authentication loop is broken.
+ */
+function logout() {
+    // 1. Aggressively sign out from Supabase (to clear their cookies/session state)
+    if (supabaseClient) {
+        // Use an asynchronous call but don't wait for it to avoid blocking the redirect
+        supabaseClient.auth.signOut({ scope: 'global' }); 
+    }
+    
+    // 2. Clear local storage
     localStorage.removeItem(TOKEN_STORAGE_KEY);
-    location.reload(); 
+    localStorage.removeItem(USER_ID_STORAGE_KEY); 
+    
+    // 3. CRITICAL FIX: Ensure a clean redirect to login.html if on dashboard
+    if (window.location.pathname.endsWith('index.html') || window.location.pathname === '/') {
+        window.location.href = 'login.html';
+    } else {
+        location.reload(); 
+    }
 }
 
 function updateAuthStatusUI() {
-    // ... (This function remains mostly the same, depending on index.html usage) ...
     const token = getToken();
     const authStatusLink = document.getElementById('authStatusLink');
     const greetingMessage = document.getElementById('greetingMessage');
     const alertCreationSection = document.getElementById('alertCreationSection');
+    const noAlertsMessage = document.getElementById('noAlertsMessage');
     
     if (authStatusLink) {
         if (token) {
             authStatusLink.innerHTML = `<a href="#" onclick="logout()">Logout</a>`;
             if (greetingMessage) greetingMessage.textContent = 'Welcome Back!'; 
             if (alertCreationSection) alertCreationSection.style.display = 'block';
+            if (noAlertsMessage) noAlertsMessage.style.display = 'none';
         } else {
             authStatusLink.innerHTML = `<a href="login.html">Login</a>`; 
             if (greetingMessage) greetingMessage.textContent = 'Please Log In';
             if (alertCreationSection) alertCreationSection.style.display = 'none';
+            if (noAlertsMessage && (window.location.pathname.endsWith('index.html') || window.location.pathname === '/')) {
+                noAlertsMessage.style.display = 'block';
+            }
         }
     }
 }
@@ -101,7 +128,7 @@ function updateAuthStatusUI() {
 // ==========================================================
 
 /**
- * NEW: Handles Google OAuth login and registration.
+ * Handles Google OAuth login and registration.
  */
 async function handleGoogleLogin() {
     const messageElement = document.getElementById('loginMessage');
@@ -123,7 +150,6 @@ async function handleGoogleLogin() {
         const { data, error } = await supabaseClient.auth.signInWithOAuth({
             provider: 'google',
             options: {
-                // Redirects back to your main dashboard after successful login/registration
                 redirectTo: `${window.location.origin}/index.html` 
             }
         });
@@ -135,7 +161,6 @@ async function handleGoogleLogin() {
                 messageElement.className = 'text-danger';
             }
         } else if (data && data.url) {
-            // Success: Redirect the user to the Google login screen
             window.location.href = data.url;
         }
 
@@ -150,7 +175,7 @@ async function handleGoogleLogin() {
 
 
 /**
- * 1. Handles traditional Email/Password Login (Kept for compatibility).
+ * 1. Handles traditional Email/Password Login.
  */
 async function handleLogin() {
     const email = document.getElementById('loginEmail')?.value;
@@ -180,7 +205,8 @@ async function handleLogin() {
         const result = await response.json();
 
         if (response.ok) {
-            saveToken(result.access_token);
+            // IMPORTANT: Assume the Flask backend returns both access_token and user_id here
+            saveToken(result.access_token, result.user_id);
             if (messageElement) {
                 messageElement.textContent = 'Login successful! Redirecting...';
                 messageElement.className = 'text-success';
@@ -206,7 +232,7 @@ async function handleLogin() {
 
 
 /**
- * 2. Handles Registration (Assumed to be on register.html).
+ * 2. Handles Registration.
  */
 async function handleRegistration() {
     const email = document.getElementById('registerEmail')?.value;
@@ -272,7 +298,7 @@ async function handleRegistration() {
 
 
 // ==========================================================
-// B. MARKET AND ALERT HANDLERS (Unchanged)
+// B. MARKET AND ALERT HANDLERS 
 // ==========================================================
 
 // --- 3. FETCH & DISPLAY SUPPORTED PAIRS (FOR SIDEBAR) ---
@@ -288,6 +314,7 @@ async function fetchAndDisplaySupportedPairs() {
         const pairsData = await pairsResponse.json();
         const supportedPairs = pairsData.supported_pairs;
         
+        // Fetch market summary (price and change)
         const summaryResponse = await fetch(`${API_BASE_URL}/api/market-summary`);
         const marketSummary = await summaryResponse.json();
         const marketDataMap = new Map();
@@ -336,7 +363,8 @@ async function fetchAndDisplaySupportedPairs() {
 // --- 4. CORE ALERT CREATION FUNCTION ---
 async function createAlertFromDashboard() {
     const token = getToken();
-    if (!token) {
+    const userId = getUserId(); 
+    if (!token || !userId) {
         alert("Authentication required. Please log in first.");
         return;
     }
@@ -365,7 +393,8 @@ async function createAlertFromDashboard() {
                 'Authorization': `Bearer ${token}` 
             },
             body: JSON.stringify({
-                'alert_phrase': alertPhrase
+                'alert_phrase': alertPhrase,
+                'user_id': userId 
             })
         });
 
@@ -382,7 +411,7 @@ async function createAlertFromDashboard() {
             let errorMessage = result.error || 'Unknown API Error.';
             if (response.status === 401 || response.status === 422) {
                 errorMessage = "Authentication failed. Token is expired or invalid. Please re-login.";
-                logout(); 
+                logout(); // Will redirect user to login.html
             } else if (result.details) {
                 errorMessage += ` (Details: ${result.details})`;
             }
@@ -404,11 +433,12 @@ async function createAlertFromDashboard() {
 // --- 5. CORE ALERT FETCHING FUNCTION ---
 async function fetchAndDisplayAlerts() {
     const token = getToken();
+    const userId = getUserId(); 
     const alertsList = document.getElementById('alertsList'); 
     
     if (!alertsList) return;
 
-    if (!token) {
+    if (!token || !userId) {
         alertsList.innerHTML = '<tr><td colspan="5" class="text-danger">❌ Not Logged In. Log in to manage alerts.</td></tr>';
         return;
     }
@@ -416,7 +446,7 @@ async function fetchAndDisplayAlerts() {
     alertsList.innerHTML = '<tr><td colspan="5">Loading alerts...</td></tr>'; 
     
     try {
-        const response = await fetch(`${API_BASE_URL}/api/my-alerts`, {
+        const response = await fetch(`${API_BASE_URL}/api/my-alerts`, { 
             method: 'GET',
             headers: {
                 'Content-Type': 'application/json',
@@ -424,10 +454,13 @@ async function fetchAndDisplayAlerts() {
             }
         });
         
+        // CRITICAL FIX: Ensure clean logout and redirect on auth failure (401/422)
         if (response.status === 401 || response.status === 422) {
              alertsList.innerHTML = '<tr><td colspan="5" class="text-danger">❌ Authentication Failed. Token is expired or invalid. Please re-login.</td></tr>';
-             logout(); 
-             return;
+             localStorage.removeItem(TOKEN_STORAGE_KEY); // Explicitly remove bad token
+             localStorage.removeItem(USER_ID_STORAGE_KEY);
+             window.location.href = 'login.html'; // Force redirect to login page
+             return; // Stop execution
         }
 
         if (!response.ok) {
@@ -484,7 +517,8 @@ async function fetchAndDisplayAlerts() {
 // --- 6. DELETE ALERT FUNCTION ---
 async function deleteAlert(alertId) {
     const token = getToken();
-    if (!token) {
+    const userId = getUserId(); 
+    if (!token || !userId) {
         alert("Authentication required. Please log in first.");
         return;
     }
@@ -498,7 +532,10 @@ async function deleteAlert(alertId) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}` 
             },
-            body: JSON.stringify({ 'alert_id': alertId })
+            body: JSON.stringify({ 
+                'alert_id': alertId,
+                'user_id': userId 
+            })
         });
 
         const result = await response.json();
@@ -530,36 +567,60 @@ function useSuggestion(suggestion) {
 // ==========================================================
 
 // Function to check for and process a Supabase session after redirect
-async function checkSupabaseSession() {
-    // Only proceed if the client is ready
-    if (!supabaseClient) {
-        // Wait for initialization to complete if it's still running
-        await new Promise(resolve => setTimeout(resolve, 500)); // Basic wait
-        if (!supabaseClient) return; // Exit if still not initialized
-    }
+// scripts.js (The checkSupabaseSession function)
 
+async function checkSupabaseSession() {
+    // ... (supabaseClient check and getSession call remains the same) ...
+    
     try {
+        console.log("--- DEBUG START: checkSupabaseSession ---");
         const { data: { session }, error } = await supabaseClient.auth.getSession();
         
-        if (error) throw error;
+        // ... (error handling remains the same) ...
 
         if (session) {
-            // 1. Save the new JWT token from Supabase to match your Flask backend's expected structure
-            saveToken(session.access_token);
+            saveToken(session.access_token, session.user.id); 
+            console.log("✅ Supabase Session Found! Token and User ID saved.");
             
-            // 2. Redirect to the main dashboard
-            if (window.location.pathname.endsWith('login.html') || window.location.pathname === '/') {
-                window.location.href = 'index.html';
-            } else {
-                // For index.html, just update the UI
-                updateAuthStatusUI();
-                fetchAndDisplayAlerts();
+            // CRITICAL FIX: IF the URL has a hash (meaning it just came from OAuth), 
+            // clear the hash AND force a clean redirect.
+            if (window.location.hash) {
+                console.log("Clearing URL hash and forcing clean index.html redirect.");
+                
+                // 1. Clear the history state
+                window.history.replaceState(null, null, window.location.pathname);
+                
+                // 2. Force a clean page load without the hash to prevent the loop
+                window.location.replace('index.html');
+                return; // Stop execution here, the page is reloading
             }
+            
+            // If no hash, just update the UI (i.e., this is a regular page load)
+            updateAuthStatusUI();
+            fetchAndDisplayAlerts();
+            
+        } else {
+             console.log("No Supabase session found in URL hash or storage.");
         }
+        console.log("--- DEBUG END: checkSupabaseSession ---");
     } catch (e) {
         console.error("Error getting Supabase session:", e);
     }
 }
+
+// NOTE: You can remove this block from the original code now as the logic is inside the 'if (session)' block
+//            if (window.location.pathname.endsWith('login.html') || window.location.pathname.endsWith('register.html') || window.location.pathname === '/') {
+//                window.location.href = 'index.html';
+//            } else {
+//                updateAuthStatusUI();
+//                fetchAndDisplayAlerts();
+//            }
+//            
+//            // Clear the URL fragment (if the index.html is loaded directly with the hash)
+//            if (window.location.hash) {
+//                console.log("Clearing URL hash.");
+//                window.history.replaceState(null, null, window.location.pathname);
+//            }
 
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -572,7 +633,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 3. Update the UI to show Login or Logout link
     updateAuthStatusUI();
     
-    // 4. Attach click listener to the Google login button (on login.html)
+    // 4. Attach click listeners for login buttons (on login.html)
+    const loginButton = document.getElementById('loginButton'); 
+    if (loginButton) {
+        loginButton.addEventListener('click', handleLogin);
+    }
+    
     const googleLoginButton = document.getElementById('googleLoginButton');
     if (googleLoginButton) {
         googleLoginButton.addEventListener('click', handleGoogleLogin);
@@ -593,7 +659,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // 7. Attach listener for register button (on register.html - assumed to exist)
     const registerButton = document.querySelector('.register-btn');
-    if (registerButton && !registerButton.onclick) {
+    if (registerButton) { 
         registerButton.addEventListener('click', handleRegistration);
     }
 });

@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Crypto Pulse Alert Management</title>
-    <link rel="stylesheet" href="styles.css">
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
 
@@ -30,7 +31,7 @@
                     <span style="font-size: 24px;">Crypto Pulse</span>
                 </div>
                 <div class="nav-links">
-                    <a href="index.html">Dashboard</a>
+                    <a href="{{ url_for('index_page') }}">Dashboard</a>
                     <a href="#">+ Alert</a>
                     <span id="authStatusLink">
                         </span>
@@ -93,6 +94,8 @@
         </main>
     </div>
 
-    <script src="scripts.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
 </body>
 </html>

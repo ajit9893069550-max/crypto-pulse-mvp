@@ -2,28 +2,24 @@ import re
 import os
 import json
 import logging
-import asyncio # Required for running CCXT async calls
+import asyncio 
 from datetime import datetime, timedelta, timezone 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template 
 from flask_cors import CORS 
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, JWTManager
 from supabase import create_client, Client
 from supabase_auth.errors import AuthApiError
-import ccxt.async_support as ccxt # Import CCXT for fetching market data
+import ccxt.async_support as ccxt 
 
 # --- CONFIGURATION & INITIALIZATION ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Supabase Configuration ---
-# Read from environment variables set in Render
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
-    # Do not raise a FATAL error here, as the Flask app might still need to run
-    # to serve the /api/config endpoint even if the Supabase client init fails.
-    # However, we must log a critical warning.
     logger.critical("FATAL: SUPABASE_URL and SUPABASE_KEY environment variables must be set.")
 
 try:
@@ -33,24 +29,55 @@ except Exception as e:
     logger.error(f"Failed to initialize Supabase client: {e}")
     # The app will continue to run, but auth routes relying on 'supabase' will fail.
 
+# IMPORTANT: Flask will look for HTML files in a folder named 'templates'
 app = Flask(__name__)
 
 # --- JWT Configuration ---
-app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY")
+# 🛑 CRITICAL FIX: Load JWT_SECRET_KEY securely from the environment
+app.config["JWT_SECRET_KEY"] = os.environ.get("SUPABASE_JWT_SECRET") 
 
 if not app.config["JWT_SECRET_KEY"]:
     raise EnvironmentError(
-        "FATAL: JWT_SECRET_KEY environment variable must be set."
+        "FATAL: SUPABASE_JWT_SECRET environment variable must be set (Key used: SUPABASE_JWT_SECRET)."
     )
 
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
 jwt = JWTManager(app)
 
-# Allow all origins for API endpoints
+# =================================================================
+# --- CRITICAL FIX: Custom JWT Error Handlers (Ensures clean 401s) ---
+# =================================================================
+@jwt.unauthorized_loader
+def unauthorized_callback(callback):
+    """Handler for missing token, e.g., no 'Authorization' header."""
+    return jsonify({
+        "error": "Authorization failed: Missing token in request header. Please log in.",
+        "status_code": 401
+    }), 401
+
+@jwt.expired_token_loader
+def expired_token_callback(jwt_header, jwt_payload):
+    """Handler for expired tokens."""
+    return jsonify({
+        "error": "Authorization failed: The token has expired. Please log in again.",
+        "status_code": 401
+    }), 401
+
+@jwt.invalid_token_loader
+def invalid_token_callback(error):
+    """Handler for tokens that are structurally invalid, malformed, or have a bad signature."""
+    return jsonify({
+        "error": "Authorization failed: Token is invalid or malformed. Please re-login.",
+        "details": str(error),
+        "status_code": 401
+    }), 401
+
+# --- CORS Configuration ---
+# Allow all origins for API endpoints for simplicity, or specify your Render domain (better security)
+# CORS(app, resources={r"/api/*": {"origins": "https://crypto-pulse-dashboard1.onrender.com"}})
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- CCXT Configuration ---
-# Set the exchange you want to fetch pairs from
 EXCHANGE_ID = 'binanceus' 
 
 async def get_exchange():
@@ -60,7 +87,6 @@ async def get_exchange():
 
 # -----------------------------------------------------------------
 # --- SUPPORTED ASSETS (MUST MATCH PARSER) ---
-# This list is used to filter market data before display on the dashboard.
 SUPPORTED_TOKENS = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE'] 
 # -----------------------------------------------------------------
 
@@ -85,11 +111,9 @@ def parse_alert_phrase(phrase):
     # 1. Check for Complex MA Cross Alerts (50 MA / 200 MA)
     if 'CROSS' in phrase:
         if 'GOLDEN' in phrase:
-            # Standardize type to MA_CROSS, condition is ABOVE
             sub_type = 'MA_CROSS' 
             condition = 'ABOVE'
         elif 'DEATH' in phrase:
-            # Standardize type to MA_CROSS, condition is BELOW
             sub_type = 'MA_CROSS' 
             condition = 'BELOW'
         else:
@@ -102,9 +126,8 @@ def parse_alert_phrase(phrase):
             asset = match.group(1)
             timeframe = match.group(2)
             
-            # ** CRITICAL FIX: Convert timeframe to lowercase for CCXT compatibility **
+            # CRITICAL FIX: Convert timeframe to lowercase for CCXT compatibility
             timeframe = timeframe.lower() 
-            # ** Example: 4H becomes 4h, 30M becomes 30m, 1D becomes 1d **
             
             return {
                 'alert_type': sub_type, 
@@ -112,7 +135,6 @@ def parse_alert_phrase(phrase):
                 'timeframe': timeframe, 
                 'operator': None, 
                 'target_value': None,
-                # NEW: Store specific MA cross details in params
                 'params': { 
                     'condition': condition, 
                     'fast_ma': 50,  # Default periods for engine
@@ -134,8 +156,7 @@ def parse_alert_phrase(phrase):
             'asset': asset, 
             'operator': operator, 
             'target_value': target_value, 
-            'timeframe': None, # Price alerts do not typically have a timeframe
-            # NEW: Store specific Price details in params
+            'timeframe': None, 
             'params': {
                 'target_price': target_value,
                 'condition': 'ABOVE' if operator == '>' else 'BELOW'
@@ -154,14 +175,16 @@ def fetch_user_alerts(user_id):
 
 def deactivate_alert(alert_id, user_id, status='DELETED'):
     """
-    Deactivates alert after verifying ownership.
-    Use UTC time for database consistency.
+    Logic for soft deletion (marking status as 'DELETED').
+    FIXED: Only updates the 'status' column, solving the 400/500 error 
+    caused by a non-existent 'updated_at' column in the Supabase schema.
     """
     if not supabase: return False
+    
+    # --- CRITICAL FIX: Only update the 'status' column ---
     response = supabase.table('alerts').update({
         'status': status, 
-        # Using UTC for standardized timestamp
-        'updated_at': datetime.now(timezone.utc).isoformat() 
+        # 'updated_at' is REMOVED from the dictionary
     }).eq('id', alert_id).eq('user_id', user_id).execute()
 
     return len(response.data) > 0 # Returns True if a row was updated
@@ -170,21 +193,29 @@ def deactivate_alert(alert_id, user_id, status='DELETED'):
 #                         API ROUTES
 # =================================================================
 
-# --- 0. Root Route / Health Check ---
+# --- 0. HTML Serving Routes ---
 @app.route('/')
-def index():
-    return jsonify({
-        "status": "OK", 
-        "service": "Crypto Pulse API is Running",
-        "timestamp": datetime.now().isoformat()
-    }), 200
+@app.route('/index.html')
+def index_page():
+    """Serves the main dashboard page."""
+    return render_template('index.html')
 
-# --- NEW ROUTE: 9. GET /api/config ---
+@app.route('/login.html')
+def login_page():
+    """Serves the login page. Endpoint used by url_for('login_page') in HTML."""
+    return render_template('login.html')
+
+@app.route('/register.html')
+def register_page():
+    """Serves the registration page. Endpoint used by url_for('register_page') in HTML."""
+    return render_template('register.html')
+
+
+# --- 9. GET /api/config ---
 @app.route('/api/config', methods=['GET'])
 def get_config():
     """
     Exposes non-sensitive environment variables to the frontend.
-    The Supabase Anonymous Key (SUPABASE_KEY) is PUBLIC and safe to expose.
     """
     supabase_url = os.environ.get('SUPABASE_URL')
     supabase_key = os.environ.get('SUPABASE_KEY')
@@ -193,7 +224,7 @@ def get_config():
         logger.error("Configuration request failed: Supabase credentials missing on server.")
         return jsonify({
             "error": "Supabase configuration missing on server.",
-            "details": "Check if SUPABASE_URL and SUPABASE_KEY are set in Render environment variables."
+            "details": "Check if SUPABASE_URL and SUPABASE_KEY are set in environment variables."
         }), 500
 
     return jsonify({
@@ -285,10 +316,10 @@ def manual_telegram_link():
         except ValueError:
             return jsonify({"error": "telegram_user_id must be a valid integer"}), 400
 
-        # Update the profiles table
-        response = supabase.table('profiles').update({ 
-            'telegram_user_id': telegram_id 
-        }).eq('id', user_uuid).execute() 
+        # Update the users table (assuming 'users' is your profile table and 'user_uuid' is the primary key)
+        response = supabase.table('users').update({ 
+            'telegram_chat_id': telegram_id # Changed field name for clarity and consistency with alert engine
+        }).eq('user_uuid', user_uuid).execute() 
 
         if len(response.data) > 0:
             return jsonify({
@@ -349,16 +380,17 @@ def get_my_alerts():
     user_id = get_jwt_identity()
     
     try:
-        # 1. CRITICAL: CHECK AND CREATE USER PROFILE IF MISSING
-        # Check if a user entry exists in your public.users table (replace 'users' with 'profiles' if needed)
-        profile_response = supabase.table('users').select('user_uuid').eq('user_uuid', user_id).limit(1).execute()
+        # 1. CRITICAL: CHECK AND CREATE USER PROFILE IF MISSING (Handles Google Sign-in)
+        profile_table_name = 'users' # Use the table name from your schema
+        profile_id_column = 'user_uuid' # Use the column name from your schema
         
-        # If no profile found, create one immediately (This handles Google Sign-in)
+        profile_response = supabase.table(profile_table_name).select(profile_id_column).eq(profile_id_column, user_id).limit(1).execute()
+        
+        # If no profile found, create one immediately
         if not profile_response.data:
             logger.info(f"Creating missing public profile for new user: {user_id}")
-            # Ensure the column name here ('user_uuid') matches your table schema
-            supabase.table('users').insert({
-                'user_uuid': user_id, 
+            supabase.table(profile_table_name).insert({
+                profile_id_column: user_id, 
                 'created_at': datetime.now(timezone.utc).isoformat()
             }).execute()
         
@@ -393,6 +425,7 @@ def delete_alert():
         if not alert_id:
             return jsonify({"error": "Missing required field: alert_id"}), 400
             
+        # Use the soft delete helper function defined above
         if deactivate_alert(alert_id, user_id=user_id, status='DELETED'):
             logger.info(f"Alert ID {alert_id} logically deleted by user {user_id}.")
             return jsonify({"message": f"Alert ID {alert_id} deleted successfully."}), 200
@@ -401,8 +434,12 @@ def delete_alert():
             return jsonify({"error": f"Failed to delete alert ID {alert_id}. Alert not found or does not belong to user."}), 404 
 
     except Exception as e:
-        logger.error(f"Error in delete_alert API for user {user_id}: {e}")
-        return jsonify({"error": "Internal server error.", "details": str(e)}), 500
+        # 💡 CRITICAL FIX: Use repr(e) to guarantee a serializable string representation.
+        error_details = repr(e) 
+        logger.error(f"Error in delete_alert API for user {user_id}: {error_details}")
+        
+        # This will now reliably send the error details back without a serialization crash
+        return jsonify({"error": "Internal server error.", "details": error_details}), 500
 
 # --- 7. GET /api/supported-pairs (FIXED FILTERING) ---
 @app.route('/api/supported-pairs', methods=['GET'])
@@ -412,19 +449,15 @@ def get_supported_pairs():
     by the parser (BTC, ETH, etc., paired with USDT).
     """
     
-    # We must run the CCXT call asynchronously
     async def fetch_markets_async():
         exchange = await get_exchange()
         try:
-            # Fetch all markets
             markets = await exchange.fetch_markets() 
-            await exchange.close() # Close the connection
+            await exchange.close() 
             
-            # --- CRITICAL FILTERING LOGIC ---
-            # 1. Look for pairs ending in '/USDT'
-            # 2. Check if the base token (e.g., BTC from BTC/USDT) is in our SUPPORTED_TOKENS list
+            # CRITICAL FILTERING LOGIC 
             symbols = sorted([
-                m['symbol'] 
+                m['symbol'].replace('/', '') # Simplify for frontend display (e.g., BTCUSDT)
                 for m in markets 
                 if m.get('spot') and 
                     m['symbol'].endswith('/USDT') and
@@ -442,7 +475,7 @@ def get_supported_pairs():
         
         # Check if the result is an error dict
         if isinstance(result, tuple) and len(result) == 2 and 'error' in result[0]:
-              return jsonify(result[0]), result[1] 
+            return jsonify(result[0]), result[1] 
 
         return jsonify({
             "exchange": EXCHANGE_ID, 
@@ -460,7 +493,6 @@ def get_market_summary():
     """
     Fetches the current price and 24h change for all supported pairs.
     """
-    # Use the same list of supported tokens defined earlier
     global SUPPORTED_TOKENS 
     
     async def fetch_tickers_async():
@@ -479,7 +511,7 @@ def get_market_summary():
                 ticker = tickers.get(symbol)
                 if ticker:
                     summary.append({
-                        'symbol': ticker['symbol'],
+                        'symbol': ticker['symbol'].replace('/', ''), # Simplify to BTCUSDT
                         'price': ticker['last'],
                         'change_percent': ticker['percentage'],
                         'change_absolute': ticker['change']
@@ -494,7 +526,7 @@ def get_market_summary():
         result = asyncio.run(fetch_tickers_async())
         
         if isinstance(result, tuple) and len(result) == 2 and 'error' in result[0]:
-              return jsonify(result[0]), result[1] 
+            return jsonify(result[0]), result[1] 
 
         return jsonify(result), 200
 
