@@ -102,6 +102,10 @@ def parse_alert_phrase(phrase):
             asset = match.group(1)
             timeframe = match.group(2)
             
+            # ** CRITICAL FIX: Convert timeframe to lowercase for CCXT compatibility **
+            timeframe = timeframe.lower() 
+            # ** Example: 4H becomes 4h, 30M becomes 30m, 1D becomes 1d **
+            
             return {
                 'alert_type': sub_type, 
                 'asset': asset, 
@@ -130,7 +134,7 @@ def parse_alert_phrase(phrase):
             'asset': asset, 
             'operator': operator, 
             'target_value': target_value, 
-            'timeframe': None,
+            'timeframe': None, # Price alerts do not typically have a timeframe
             # NEW: Store specific Price details in params
             'params': {
                 'target_price': target_value,
@@ -409,8 +413,8 @@ def get_supported_pairs():
                 m['symbol'] 
                 for m in markets 
                 if m.get('spot') and 
-                   m['symbol'].endswith('/USDT') and
-                   m['symbol'].split('/')[0] in SUPPORTED_TOKENS
+                    m['symbol'].endswith('/USDT') and
+                    m['symbol'].split('/')[0] in SUPPORTED_TOKENS
             ])
             return symbols
             
@@ -424,7 +428,7 @@ def get_supported_pairs():
         
         # Check if the result is an error dict
         if isinstance(result, tuple) and len(result) == 2 and 'error' in result[0]:
-             return jsonify(result[0]), result[1] 
+              return jsonify(result[0]), result[1] 
 
         return jsonify({
             "exchange": EXCHANGE_ID, 
@@ -476,7 +480,7 @@ def get_market_summary():
         result = asyncio.run(fetch_tickers_async())
         
         if isinstance(result, tuple) and len(result) == 2 and 'error' in result[0]:
-             return jsonify(result[0]), result[1] 
+              return jsonify(result[0]), result[1] 
 
         return jsonify(result), 200
 
