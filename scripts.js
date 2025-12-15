@@ -1,9 +1,11 @@
 // scripts.js
 
 // --- GLOBAL CONFIGURATION ---
+// The API_BASE_URL is still needed to call the new config endpoint.
 const API_BASE_URL = 'https://crypto-pulse-mvp-1.onrender.com';
 const TOKEN_STORAGE_KEY = 'access_token';
-const USER_ID_STORAGE_KEY = 'user_id'; // IMPORTANT: Store User ID separately
+
+// Supabase client instance will be initialized dynamically
 let supabaseClient = null;
 
 
@@ -12,7 +14,8 @@ let supabaseClient = null;
 // ==========================================================
 
 /**
- * Step 1: Fetches configuration from the Flask backend.
+ * Step 1: Fetches configuration from the Flask backend (where the ENV vars are available).
+ * @returns {Promise<Object>} Object containing Supabase URL and Key.
  */
 async function fetchConfig() {
     try {
@@ -27,6 +30,7 @@ async function fetchConfig() {
         return config;
     } catch (error) {
         console.error("Failed to fetch configuration from backend:", error);
+        // Fallback or critical error handling
         return { SUPABASE_URL: null, SUPABASE_KEY: null };
     }
 }
@@ -39,6 +43,7 @@ async function initializeSupabase() {
     
     if (config.SUPABASE_URL && config.SUPABASE_KEY && typeof supabase !== 'undefined') {
         try {
+            // Initialize Supabase Client using the fetched environment variables
             supabaseClient = supabase.createClient(config.SUPABASE_URL, config.SUPABASE_KEY);
             console.log("Supabase client initialized successfully.");
         } catch (e) {
@@ -58,51 +63,34 @@ function getToken() {
     return localStorage.getItem(TOKEN_STORAGE_KEY);
 }
 
-function getUserId() {
-    return localStorage.getItem(USER_ID_STORAGE_KEY);
-}
-
-// **CRITICAL FIX 1: Save both the JWT token AND the User ID**
-function saveSession(token, userId) {
+function saveToken(token) {
     localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    localStorage.setItem(USER_ID_STORAGE_KEY, userId);
 }
 
-// **CRITICAL FIX 2: Clear all session data**
 function logout() {
     if (supabaseClient) {
-        // Sign out of Supabase session (important for OAuth users)
-        supabaseClient.auth.signOut(); 
+        supabaseClient.auth.signOut();
     }
     localStorage.removeItem(TOKEN_STORAGE_KEY);
-    localStorage.removeItem(USER_ID_STORAGE_KEY); // Clear User ID
-    window.location.href = 'login.html'; // Redirect to clear dashboard state
+    location.reload(); 
 }
 
-// **CRITICAL FIX 3: Dynamic UI update using User ID**
 function updateAuthStatusUI() {
+    // ... (This function remains mostly the same, depending on index.html usage) ...
     const token = getToken();
-    const userId = getUserId();
     const authStatusLink = document.getElementById('authStatusLink');
     const greetingMessage = document.getElementById('greetingMessage');
     const alertCreationSection = document.getElementById('alertCreationSection');
-    const noAlertsMessage = document.getElementById('noAlertsMessage');
     
     if (authStatusLink) {
-        if (token && userId) {
+        if (token) {
             authStatusLink.innerHTML = `<a href="#" onclick="logout()">Logout</a>`;
-            
-            // Personalize greeting with part of the UUID
-            const shortId = userId.substring(0, 8); 
-            if (greetingMessage) greetingMessage.textContent = `Welcome Back, User ${shortId}!`; 
-            
+            if (greetingMessage) greetingMessage.textContent = 'Welcome Back!'; 
             if (alertCreationSection) alertCreationSection.style.display = 'block';
-            if (noAlertsMessage) noAlertsMessage.style.display = 'none';
         } else {
             authStatusLink.innerHTML = `<a href="login.html">Login</a>`; 
             if (greetingMessage) greetingMessage.textContent = 'Please Log In';
             if (alertCreationSection) alertCreationSection.style.display = 'none';
-            if (noAlertsMessage) noAlertsMessage.style.display = 'block';
         }
     }
 }
@@ -113,7 +101,7 @@ function updateAuthStatusUI() {
 // ==========================================================
 
 /**
- * Handles Google OAuth login and registration.
+ * NEW: Handles Google OAuth login and registration.
  */
 async function handleGoogleLogin() {
     const messageElement = document.getElementById('loginMessage');
@@ -126,7 +114,6 @@ async function handleGoogleLogin() {
         return;
     }
 
-    // ... (rest of your handleGoogleLogin remains the same) ...
     if (messageElement) {
         messageElement.textContent = 'Redirecting to Google...';
         messageElement.className = 'text-info';
@@ -136,7 +123,7 @@ async function handleGoogleLogin() {
         const { data, error } = await supabaseClient.auth.signInWithOAuth({
             provider: 'google',
             options: {
-                // Ensure this is the correct public facing URL
+                // Redirects back to your main dashboard after successful login/registration
                 redirectTo: `${window.location.origin}/index.html` 
             }
         });
@@ -163,14 +150,13 @@ async function handleGoogleLogin() {
 
 
 /**
- * 1. Handles traditional Email/Password Login.
+ * 1. Handles traditional Email/Password Login (Kept for compatibility).
  */
 async function handleLogin() {
     const email = document.getElementById('loginEmail')?.value;
     const password = document.getElementById('loginPassword')?.value;
     const messageElement = document.getElementById('loginMessage');
     
-    // ... (Input validation logic remains the same) ...
     if (!email || !password) {
         if (messageElement) {
              messageElement.textContent = 'Please enter both email and password.';
@@ -194,8 +180,7 @@ async function handleLogin() {
         const result = await response.json();
 
         if (response.ok) {
-            // **FIXED: Use saveSession to store both token and user_id**
-            saveSession(result.access_token, result.user_id); 
+            saveToken(result.access_token);
             if (messageElement) {
                 messageElement.textContent = 'Login successful! Redirecting...';
                 messageElement.className = 'text-success';
@@ -203,7 +188,6 @@ async function handleLogin() {
             window.location.href = 'index.html'; 
 
         } else {
-            // ... (Error handling remains the same) ...
             let errorMessage = result.error || 'Invalid credentials';
             if (messageElement) {
                 messageElement.textContent = `❌ Login Failed: ${errorMessage}`;
@@ -212,7 +196,6 @@ async function handleLogin() {
         }
 
     } catch (error) {
-        // ... (Network error handling remains the same) ...
         console.error('Network or Fetch Error:', error);
         if (messageElement) {
             messageElement.textContent = '⚠️ Failed to connect to the API.';
@@ -223,10 +206,9 @@ async function handleLogin() {
 
 
 /**
- * 2. Handles Registration.
+ * 2. Handles Registration (Assumed to be on register.html).
  */
 async function handleRegistration() {
-    // ... (The entire handleRegistration function remains the same as it is correct) ...
     const email = document.getElementById('registerEmail')?.value;
     const password = document.getElementById('registerPassword')?.value;
     const confirmPassword = document.getElementById('confirmPassword')?.value;
@@ -290,33 +272,270 @@ async function handleRegistration() {
 
 
 // ==========================================================
-// B. MARKET AND ALERT HANDLERS 
+// B. MARKET AND ALERT HANDLERS (Unchanged)
 // ==========================================================
 
-// --- 3. FETCH & DISPLAY SUPPORTED PAIRS (Unchanged, relies only on API) ---
-// --- 4. CORE ALERT CREATION FUNCTION (Unchanged, uses getToken()) ---
-// --- 5. CORE ALERT FETCHING FUNCTION (Unchanged, uses getToken()) ---
-// --- 6. DELETE ALERT FUNCTION (Unchanged, uses getToken()) ---
-// --- 7. SUGGESTION FUNCTION (Unchanged) ---
+// --- 3. FETCH & DISPLAY SUPPORTED PAIRS (FOR SIDEBAR) ---
+async function fetchAndDisplaySupportedPairs() {
+    const headerElement = document.getElementById('sidebarHeader');
+    const assetListElement = document.getElementById('live-asset-list');
+
+    if (!headerElement || !assetListElement) return;
+
+    try {
+        const pairsResponse = await fetch(`${API_BASE_URL}/api/supported-pairs`);
+        if (!pairsResponse.ok) throw new Error(`HTTP error! status: ${pairsResponse.status}`);
+        const pairsData = await pairsResponse.json();
+        const supportedPairs = pairsData.supported_pairs;
+        
+        const summaryResponse = await fetch(`${API_BASE_URL}/api/market-summary`);
+        const marketSummary = await summaryResponse.json();
+        const marketDataMap = new Map();
+        
+        if (Array.isArray(marketSummary)) {
+             marketSummary.forEach(item => {
+                 marketDataMap.set(item.symbol, item);
+             });
+        }
+        
+        headerElement.textContent = `Supported Pairs (${supportedPairs.length})`;
+        assetListElement.innerHTML = ''; 
+
+        supportedPairs.forEach(symbol => {
+            const data = marketDataMap.get(symbol);
+            
+            const price = data 
+                ? data.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 }) 
+                : '---';
+                
+            const changePercent = data 
+                ? (data.change_percent / 100).toLocaleString(undefined, { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2 }) 
+                : 'N/A';
+                
+            const changeClass = data ? (data.change_percent >= 0 ? 'positive' : 'negative') : '';
+
+            const item = document.createElement('div');
+            item.className = 'asset-item';
+            
+            item.innerHTML = `
+                <span class="ticker">${symbol}</span>
+                <span class="change ${changeClass}">${changePercent}</span> 
+                <span class="price">${price}</span>
+            `;
+            assetListElement.appendChild(item);
+        });
+
+    } catch (error) {
+        console.error("Failed to fetch market data:", error);
+        headerElement.textContent = `Supported Pairs (Error)`;
+        assetListElement.innerHTML = `<div style="padding: 10px; color: red; font-size: 12px;">Failed to load data. API Down?</div>`;
+    }
+}
 
 
-// **NOTE: Keep the functions 3, 4, 5, 6, 7 from your original script here. They are correct.**
+// --- 4. CORE ALERT CREATION FUNCTION ---
+async function createAlertFromDashboard() {
+    const token = getToken();
+    if (!token) {
+        alert("Authentication required. Please log in first.");
+        return;
+    }
+
+    const alertPhrase = document.getElementById('alertInput').value; 
+    const messageElement = document.getElementById('alertMessage'); 
+    
+    if (messageElement) {
+        messageElement.textContent = 'Sending request...';
+        messageElement.className = 'text-info';
+    }
+
+    if (!alertPhrase) {
+        if (messageElement) {
+            messageElement.textContent = 'Please enter an alert phrase.';
+            messageElement.className = 'text-danger';
+        }
+        return;
+    }
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/create-alert`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            },
+            body: JSON.stringify({
+                'alert_phrase': alertPhrase
+            })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            if (messageElement) {
+                messageElement.textContent = `✅ Alert created successfully! Type: ${result.alert_type}`;
+                messageElement.className = 'text-success';
+            }
+            document.getElementById('alertInput').value = ''; 
+            await fetchAndDisplayAlerts(); 
+        } else {
+            let errorMessage = result.error || 'Unknown API Error.';
+            if (response.status === 401 || response.status === 422) {
+                errorMessage = "Authentication failed. Token is expired or invalid. Please re-login.";
+                logout(); 
+            } else if (result.details) {
+                errorMessage += ` (Details: ${result.details})`;
+            }
+            if (messageElement) {
+                messageElement.textContent = `❌ Error: ${errorMessage}`;
+                messageElement.className = 'text-danger';
+            }
+        }
+
+    } catch (error) {
+        console.error('Network or Fetch Error:', error);
+        if (messageElement) {
+            messageElement.textContent = `⚠️ Failed to connect to the server. Is the Web API service running at ${API_BASE_URL}? (Error: ${error.message})`;
+            messageElement.className = 'text-danger';
+        }
+    }
+}
+
+// --- 5. CORE ALERT FETCHING FUNCTION ---
+async function fetchAndDisplayAlerts() {
+    const token = getToken();
+    const alertsList = document.getElementById('alertsList'); 
+    
+    if (!alertsList) return;
+
+    if (!token) {
+        alertsList.innerHTML = '<tr><td colspan="5" class="text-danger">❌ Not Logged In. Log in to manage alerts.</td></tr>';
+        return;
+    }
+
+    alertsList.innerHTML = '<tr><td colspan="5">Loading alerts...</td></tr>'; 
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/my-alerts`, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            }
+        });
+        
+        if (response.status === 401 || response.status === 422) {
+             alertsList.innerHTML = '<tr><td colspan="5" class="text-danger">❌ Authentication Failed. Token is expired or invalid. Please re-login.</td></tr>';
+             logout(); 
+             return;
+        }
+
+        if (!response.ok) {
+            const errorResult = await response.json();
+             alertsList.innerHTML = `<tr><td colspan="5" class="text-danger">❌ Failed to fetch alerts: ${errorResult.error || 'Server error'}</td></tr>`;
+             return;
+        }
+        
+        const alerts = await response.json();
+        
+        alertsList.innerHTML = '';
+        
+        if (alerts.length === 0) {
+            alertsList.innerHTML = '<tr><td colspan="5">No active alerts found. Create one above!</td></tr>';
+            return;
+        }
+        
+        alerts.forEach(alert => {
+            const row = alertsList.insertRow();
+            let cellIndex = 0;
+
+            row.insertCell(cellIndex++).textContent = alert.asset || 'N/A'; 
+            row.insertCell(cellIndex++).textContent = alert.timeframe || 'N/A'; 
+
+            let condition = 'N/A';
+            if (alert.alert_type === 'PRICE_TARGET') {
+                condition = `${alert.asset} ${alert.operator} ${alert.target_value}`;
+            } else if (alert.alert_type === 'MA_CROSS') {
+                const crossType = alert.params.condition === 'ABOVE' ? 'Golden Cross' : 'Death Cross';
+                condition = `${crossType} on ${alert.asset} ${alert.timeframe}`;
+            } else {
+                condition = alert.alert_type;
+            }
+            row.insertCell(cellIndex++).textContent = condition; 
+            
+            const statusCell = row.insertCell(cellIndex++);
+            statusCell.textContent = alert.status || 'Active'; 
+            statusCell.className = alert.status === 'ACTIVE' ? 'text-success' : 'text-danger';
+
+            const deleteCell = row.insertCell(cellIndex++); 
+            const deleteButton = document.createElement('button');
+            deleteButton.textContent = 'Delete';
+            deleteButton.className = 'btn btn-sm btn-danger';
+            deleteButton.onclick = () => deleteAlert(alert.id); 
+            deleteCell.appendChild(deleteButton);
+        });
+
+    } catch (error) {
+        console.error('Error fetching alerts:', error);
+        alertsList.innerHTML = '<tr><td colspan="5" class="text-danger">⚠️ Connection Error. The API is likely sleeping.</td></tr>';
+    }
+}
+
+// --- 6. DELETE ALERT FUNCTION ---
+async function deleteAlert(alertId) {
+    const token = getToken();
+    if (!token) {
+        alert("Authentication required. Please log in first.");
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to delete Alert ID ${alertId}?`)) return;
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/delete-alert`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            },
+            body: JSON.stringify({ 'alert_id': alertId })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            alert(result.message);
+            await fetchAndDisplayAlerts(); 
+        } else {
+            alert(`Error deleting alert: ${result.error || 'Unknown error'}`);
+            console.error('Delete API Error:', result.error);
+        }
+    } catch (error) {
+        console.error('Error deleting alert:', error);
+        alert('Network error while attempting to delete alert.');
+    }
+}
+
+// --- 7. SUGGESTION FUNCTION ---
+function useSuggestion(suggestion) {
+    const alertInput = document.getElementById('alertInput');
+    if (alertInput) {
+        alertInput.value = suggestion;
+    }
+}
 
 
 // ==========================================================
 // C. DOM CONTENT LOADED & EVENT LISTENERS
 // ==========================================================
 
-/**
- * **CRITICAL FIX 4: Process Supabase session on redirect from OAuth.**
- * This is the heart of the fix for Google login.
- */
+// Function to check for and process a Supabase session after redirect
 async function checkSupabaseSession() {
     // Only proceed if the client is ready
     if (!supabaseClient) {
-        // This brief wait helps handle the race condition where DOMContentLoaded runs before initializeSupabase finishes
-        await new Promise(resolve => setTimeout(resolve, 50)); 
-        if (!supabaseClient) return; 
+        // Wait for initialization to complete if it's still running
+        await new Promise(resolve => setTimeout(resolve, 500)); // Basic wait
+        if (!supabaseClient) return; // Exit if still not initialized
     }
 
     try {
@@ -325,70 +544,54 @@ async function checkSupabaseSession() {
         if (error) throw error;
 
         if (session) {
-            console.log("Supabase Session detected. Processing token...");
+            // 1. Save the new JWT token from Supabase to match your Flask backend's expected structure
+            saveToken(session.access_token);
             
-            // 1. Save the new JWT token and User ID from Supabase session
-            saveSession(session.access_token, session.user.id);
-            
-            // 2. Clear the URL fragment to hide the sensitive session data
-            history.replaceState(null, '', window.location.pathname); 
-
-            // 3. Redirect to the main dashboard if currently on the login page
-            if (window.location.pathname.endsWith('login.html')) {
+            // 2. Redirect to the main dashboard
+            if (window.location.pathname.endsWith('login.html') || window.location.pathname === '/') {
                 window.location.href = 'index.html';
-                return true; // Indicate session was processed and redirect occurred
+            } else {
+                // For index.html, just update the UI
+                updateAuthStatusUI();
+                fetchAndDisplayAlerts();
             }
-            
-            // 4. Update UI and fetch data for index.html load
-            updateAuthStatusUI();
-            fetchAndDisplayAlerts();
-            return true;
         }
     } catch (e) {
         console.error("Error getting Supabase session:", e);
     }
-    return false;
 }
 
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. First, initialize the Supabase client
+    // 1. First, initialize the Supabase client by fetching config from the backend
     await initializeSupabase(); 
 
-    // 2. Process potential Supabase session (This is the most critical step for OAuth)
-    const sessionProcessed = await checkSupabaseSession(); 
+    // 2. Process potential Supabase session (Crucial for OAuth redirect)
+    await checkSupabaseSession(); 
 
-    // **CRITICAL FIX 5: Only update UI and fetch data if we didn't just process a new session**
-    // (This prevents redundant calls or flickering if the session was just set)
-    if (!sessionProcessed) {
-        updateAuthStatusUI();
-    }
+    // 3. Update the UI to show Login or Logout link
+    updateAuthStatusUI();
     
-    // 3. Attach click listener to the Google login button (on login.html)
+    // 4. Attach click listener to the Google login button (on login.html)
     const googleLoginButton = document.getElementById('googleLoginButton');
     if (googleLoginButton) {
         googleLoginButton.addEventListener('click', handleGoogleLogin);
     }
     
-    // 4. Attach click listener to the create button (on index.html)
+    // 5. Attach click listener to the create button (on index.html)
     const createButton = document.getElementById('createAlertButton');
     if (createButton) {
         createButton.addEventListener('click', createAlertFromDashboard);
     }
     
-    // 5. Load existing alerts and supported pairs on startup (only if index.html is loaded)
+    // 6. Load existing alerts and supported pairs on startup (only if index.html is loaded)
     const alertsList = document.getElementById('alertsList');
     if (alertsList) {
-        if (!sessionProcessed) {
-             // If a session wasn't just processed and saved, we still need to fetch alerts
-             // The call is already inside checkSupabaseSession if successful, but we call it here too
-             // in case the user reloads or navigates directly with a stored token.
-             fetchAndDisplayAlerts(); 
-        }
+        fetchAndDisplayAlerts();
         fetchAndDisplaySupportedPairs();
     }
     
-    // 6. Attach listener for register button (on register.html)
+    // 7. Attach listener for register button (on register.html - assumed to exist)
     const registerButton = document.querySelector('.register-btn');
     if (registerButton && !registerButton.onclick) {
         registerButton.addEventListener('click', handleRegistration);
