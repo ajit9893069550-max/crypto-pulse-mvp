@@ -74,7 +74,7 @@ def invalid_token_callback(error):
 
 # --- CORS Configuration ---
 # Allow all origins for API endpoints for simplicity, or specify your Render domain (better security)
-# CORS(app, resources={r"/api/*": {"origins": "https://crypto-pulse-dashboard1.onrender.com"}})
+# CORS(app, resources={r"/api/*": {"origins": "https://crypto-pulse-mvp-1.onrender.com"}})
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- CCXT Configuration ---

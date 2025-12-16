@@ -1,7 +1,7 @@
 // scripts.js
 
 // --- GLOBAL CONFIGURATION ---
-const API_BASE_URL = 'https://crypto-pulse-dashboard1.onrender.com'; 
+const API_BASE_URL = 'https://crypto-pulse-mvp-1.onrender.com'; 
 const TOKEN_STORAGE_KEY = 'access_token';
 const USER_ID_STORAGE_KEY = 'user_id'; 
 
