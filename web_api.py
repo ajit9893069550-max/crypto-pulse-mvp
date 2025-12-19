@@ -39,7 +39,8 @@ jwt = JWTManager(app)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- CCXT CONFIGURATION (REFINED MIRROR) ---
-exchange = ccxt.binance({
+# Variable renamed to uppercase EXCHANGE for global consistency and to match your function call
+EXCHANGE = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'spot', 'adjustForTimeDifference': True},
     'urls': {
@@ -51,8 +52,16 @@ exchange = ccxt.binance({
 SUPPORTED_TOKENS = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE'] 
 
 # =================================================================
-#                 FRONT-END ROUTES & SMART CATCH-ALL
+#                 FRONT-END ROUTES
 # =================================================================
+
+@app.route('/login.html')
+def login_page():
+    return render_template('login.html')
+
+@app.route('/register.html')
+def register_page():
+    return render_template('register.html')
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -60,12 +69,6 @@ def catch_all(path):
     # Prevent catch-all from intercepting static files like CSS/JS
     if path.startswith(('static/', 'api/')):
         return "Not Found", 404
-        
-    # Handle specific HTML routes
-    if path == "login.html":
-        return render_template('login.html')
-    if path == "register.html":
-        return render_template('register.html')
         
     # Serve index.html for everything else (including Google Auth redirects)
     return render_template('index.html')
@@ -140,7 +143,6 @@ def create_alert():
 def get_my_alerts():
     user_id = get_jwt_identity()
     try:
-        # Check if profile exists (handles new Google users)
         profile = supabase.table('users').select('user_uuid').eq('user_uuid', user_id).execute()
         if not profile.data:
             supabase.table('users').insert({'user_uuid': user_id}).execute()
@@ -166,10 +168,12 @@ def delete_alert():
 def get_market_summary():
     try:
         symbols = [f'{token}/USDT' for token in SUPPORTED_TOKENS]
+        # Fixed: Variable name matches the global EXCHANGE initialization
         tickers = EXCHANGE.fetch_tickers(symbols)
         summary = [{'symbol': t['symbol'].replace('/', ''), 'price': t['last'], 'change_percent': t['percentage']} for t in tickers.values()]
         return jsonify(summary), 200
     except Exception as e:
+        logger.error(f"Market Summary Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @jwt.unauthorized_loader
