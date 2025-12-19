@@ -5,9 +5,8 @@ gunicorn==21.2.0
 supabase>=2.27.0
 python-dotenv==1.0.0
 ccxt>=4.5.28
-pandas==2.2.3
-numpy==1.26.4
-# Install directly from GitHub to avoid Python 3.12 restriction
-git+https://github.com/twopirllc/pandas-ta.git@main
+pandas>=2.2.0
+numpy>=2.0.0
+pandas-ta-openbb
 python-telegram-bot[job-queue]>=21.8
 httpx>=0.27.0,<0.29.0
