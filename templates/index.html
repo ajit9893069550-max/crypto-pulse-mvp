@@ -29,6 +29,19 @@
             }
         })();
     </script>
+    <script>
+        const hash = window.location.hash;
+        if (hash && hash.includes("access_token=")) {
+            const params = new URLSearchParams(hash.replace("#", "?"));
+            const token = params.get("access_token");
+            if (token) {
+                localStorage.setItem("supabase_token", token);
+            // Clean the URL and stay on the dashboard
+                window.history.replaceState(null, null, "/");
+            }
+        }
+    </script>
+    
 </head>
 <body>
 

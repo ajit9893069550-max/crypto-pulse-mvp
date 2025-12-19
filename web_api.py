@@ -66,11 +66,7 @@ def register_page():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def catch_all(path):
-    # Prevent catch-all from intercepting static files like CSS/JS
-    if path.startswith(('static/', 'api/')):
-        return "Not Found", 404
-        
-    # Serve index.html for everything else (including Google Auth redirects)
+    # This serves index.html for everything else, including Google Auth redirects
     return render_template('index.html')
 
 # =================================================================
