@@ -2,6 +2,7 @@ import os
 import logging
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,27 +12,41 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 logger = logging.getLogger("DatabaseManager")
 
 def get_db_connection():
-    """Establishes connection with SSL enabled for Supabase/Render."""
+    """
+    Establishes connection with sanitization for common Supabase/Render string errors.
+    """
     if not DATABASE_URL:
         logger.error("❌ DATABASE_URL is missing from environment variables!")
         return None
-        
+    
+    # --- SANITIZATION LOGIC ---
+    # 1. Fix the "ppostgresql" typo if it exists
+    db_url = DATABASE_URL
+    if db_url.startswith("ppostgresql"):
+        db_url = db_url.replace("ppostgresql", "postgresql", 1)
+        logger.info("Fixed connection string typo: changed 'ppostgresql' to 'postgresql'")
+
     try:
-        # psycopg2 can parse the DSN URL directly
+        # 2. Establish connection with SSL required for Supabase
         conn = psycopg2.connect(
-            DATABASE_URL, 
+            db_url, 
             sslmode='require',
             cursor_factory=RealDictCursor
         )
         return conn
     except Exception as e:
         logger.error(f"❌ Connection failed: {e}")
+        # Suggesting a fix if the DSN error persists
+        if "missing \"=\"" in str(e):
+            logger.error("💡 Hint: Ensure DATABASE_URL is a valid URI starting with 'postgresql://'")
         return None
 
 def upsert_signal(asset, timeframe, signal_type):
     """Inserts a new signal or updates the timestamp of an existing one."""
     conn = get_db_connection()
-    if not conn: return
+    if not conn: 
+        logger.error("Skipping upsert: No database connection.")
+        return
     
     try:
         with conn.cursor() as cur:
@@ -42,7 +57,7 @@ def upsert_signal(asset, timeframe, signal_type):
                 DO UPDATE SET detected_at = NOW();
             """, (asset, timeframe, signal_type))
             conn.commit()
-            logger.info(f"DB Upsert: {asset} | {timeframe} | {signal_type}")
+            logger.info(f"DB Upsert Success: {asset} | {timeframe} | {signal_type}")
     except Exception as e:
         logger.error(f"DB Upsert Error: {e}")
     finally:
@@ -54,11 +69,13 @@ def fetch_triggered_alerts():
     Filters for users who have linked their Telegram.
     """
     conn = get_db_connection()
-    if not conn: return []
+    if not conn: 
+        logger.error("Skipping fetch: No database connection.")
+        return []
     
     try:
         with conn.cursor() as cur:
-            # Matches alerts with scans from the last 20 mins to ensure no signals are missed
+            # Matches alerts with scans from the last 20 mins
             cur.execute("""
                 SELECT 
                     a.id, 
@@ -76,7 +93,9 @@ def fetch_triggered_alerts():
                 AND u.telegram_chat_id IS NOT NULL
                 AND s.detected_at > NOW() - INTERVAL '20 minutes';
             """)
-            return cur.fetchall()
+            results = cur.fetchall()
+            logger.info(f"Fetched {len(results)} triggered alerts.")
+            return results
     except Exception as e:
         logger.error(f"Error fetching triggered alerts: {e}")
         return []
