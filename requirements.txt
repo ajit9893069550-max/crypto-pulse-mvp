@@ -5,8 +5,8 @@ gunicorn==21.2.0
 supabase>=2.27.0
 python-dotenv==1.0.0
 ccxt>=4.5.28
-pandas==2.1.0
+pandas==2.2.3
 numpy==1.26.4
-pandas-ta-openbb
+pandas-ta
 python-telegram-bot[job-queue]>=21.8
 httpx>=0.27.0,<0.29.0
