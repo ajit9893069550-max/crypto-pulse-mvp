@@ -7,6 +7,7 @@ python-dotenv==1.0.0
 ccxt>=4.5.28
 pandas==2.2.3
 numpy==1.26.4
-pandas-ta
+# Install directly from GitHub to avoid Python 3.12 restriction
+git+https://github.com/twopirllc/pandas-ta.git@main
 python-telegram-bot[job-queue]>=21.8
 httpx>=0.27.0,<0.29.0
