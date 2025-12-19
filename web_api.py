@@ -8,9 +8,11 @@ from flask_cors import CORS
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, JWTManager
 from supabase import create_client, Client
 from supabase.lib.client_options import ClientOptions
-from supabase_auth.errors import AuthApiError
 import ccxt 
 from dotenv import load_dotenv
+
+# Import database connection helper
+from database_manager import get_db_connection
 
 load_dotenv()
 
@@ -37,29 +39,37 @@ jwt = JWTManager(app)
 # --- CORS ---
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# --- CCXT Sync Configuration ---
-EXCHANGE = ccxt.binance({'enableRateLimit': True})
+# --- CCXT CONFIGURATION (FIXED FOR RENDER/US RESTRICTIONS) ---
+EXCHANGE = ccxt.binance({
+    'enableRateLimit': True,
+    'urls': {
+        'api': {
+            'public': 'https://data.binance.com/api/v3',
+            'private': 'https://api.binance.com/api/v3',
+        }
+    }
+})
 SUPPORTED_TOKENS = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE'] 
 
 # =================================================================
-#                 FRONT-END ROUTES (Renders HTML)
+#                 FRONT-END ROUTES & GOOGLE AUTH FIX
 # =================================================================
 
-@app.route('/')
-@app.route('/index.html')
-def dashboard_home():
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def catch_all(path):
+    """
+    FIX: This 'catch-all' route ensures that when Google redirects back 
+    with a #access_token fragment, Flask serves index.html instead of a 404.
+    """
+    if path == "login.html":
+        return render_template('login.html')
+    if path == "register.html":
+        return render_template('register.html')
     return render_template('index.html')
 
-@app.route('/login.html')
-def login_page():
-    return render_template('login.html')
-
-@app.route('/register.html')
-def register_page():
-    return render_template('register.html')
-
 # =================================================================
-#                      API AUTH ROUTES
+#                         API AUTH ROUTES
 # =================================================================
 
 @app.route('/api/signup', methods=['POST'])
@@ -111,28 +121,34 @@ def get_signals():
 @app.route('/api/create-alert', methods=['POST'])
 @jwt_required()
 def create_alert():
-    user_id = get_jwt_identity()
+    user_uuid = get_jwt_identity() 
     data = request.get_json()
+
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+        
     try:
-        new_alert = {
-            "user_id": user_id,
-            "asset": data.get('asset'),
-            "timeframe": data.get('timeframe'),
-            "alert_type": data.get('alert_type'),
-            "status": 'ACTIVE'
-        }
-        response = supabase.table('alerts').insert(new_alert).execute()
-        return jsonify({"message": "Alert created", "data": response.data[0]}), 201
+        with conn.cursor() as cur:
+            # We use user_id::uuid cast in the policy, so string format is fine here
+            cur.execute("""
+                INSERT INTO public.alerts (user_id, asset, timeframe, alert_type, status)
+                VALUES (%s, %s, %s, %s, 'ACTIVE')
+            """, (user_uuid, data['asset'], data['timeframe'], data['signal_type']))
+            conn.commit()
+        return jsonify({"success": True}), 201
     except Exception as e:
         logger.error(f"Create Alert Error: {e}")
         return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
 
 @app.route('/api/my-alerts', methods=['GET'])
 @jwt_required()
 def get_my_alerts():
     user_id = get_jwt_identity()
     try:
-        # Check if profile exists (helps Google users)
+        # Check if profile exists (helps Google users initialize their row)
         profile = supabase.table('users').select('user_uuid').eq('user_uuid', user_id).execute()
         if not profile.data:
             supabase.table('users').insert({'user_uuid': user_id}).execute()
@@ -140,9 +156,9 @@ def get_my_alerts():
         response = supabase.table('alerts').select('*').eq('user_id', user_id).eq('status', 'ACTIVE').execute()
         return jsonify(response.data), 200
     except Exception as e:
+        logger.error(f"My Alerts Error: {e}")
         return jsonify({"error": str(e)}), 500
 
-# --- ADDED: DELETE ALERT ROUTE ---
 @app.route('/api/delete-alert', methods=['POST'])
 @jwt_required()
 def delete_alert():
@@ -150,7 +166,6 @@ def delete_alert():
     data = request.get_json()
     alert_id = data.get('alert_id')
     try:
-        # Soft delete: update status to 'DELETED'
         response = supabase.table('alerts')\
             .update({'status': 'DELETED'})\
             .eq('id', alert_id)\
@@ -172,6 +187,7 @@ def get_market_summary():
         summary = [{'symbol': t['symbol'].replace('/', ''), 'price': t['last'], 'change_percent': t['percentage']} for t in tickers.values()]
         return jsonify(summary), 200
     except Exception as e:
+        logger.error(f"Market Summary Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @jwt.unauthorized_loader
@@ -179,7 +195,5 @@ def unauthorized_callback(c):
     return jsonify({"error": "No token provided"}), 401
 
 if __name__ == "__main__":
-    import os
-    # Render provides the PORT environment variable
     port = int(os.environ.get("PORT", 5001)) 
     app.run(host='0.0.0.0', port=port)

@@ -23,9 +23,14 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'timeout': 30000,
-    'options': {'defaultType': 'spot'}
+    'options': {'defaultType': 'spot'},
+    'urls': {
+        'api': {
+            'public': 'https://data.binance.com/api/v3',
+            'private': 'https://api.binance.com/api/v3', # Note: Private calls still need the main API
+        }
+    }
 })
-
 async def analyze_asset(symbol, timeframe):
     """Fetches data, calculates 15 indicators, and saves signals to Supabase."""
     try:

@@ -6,6 +6,29 @@
     <title>CryptoPulse | Intelligence Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    
+    <script>
+        (function() {
+            const hash = window.location.hash;
+            if (hash && hash.includes("access_token=")) {
+                // Parse the fragment parameters
+                const params = new URLSearchParams(hash.replace("#", "?"));
+                const accessToken = params.get("access_token");
+                const refreshToken = params.get("refresh_token");
+
+                if (accessToken) {
+                    // Save to localStorage for our frontend API calls
+                    localStorage.setItem("supabase_token", accessToken);
+                    if (refreshToken) localStorage.setItem("supabase_refresh_token", refreshToken);
+                    
+                    console.log("OAuth Login Successful. Token saved.");
+                    
+                    // Clean the URL hash without reloading the page to prevent "Not Found" loops
+                    window.history.replaceState(null, null, window.location.pathname);
+                }
+            }
+        })();
+    </script>
 </head>
 <body>
 
@@ -107,6 +130,9 @@
                                     <option value="ETH/USDT">Ethereum (ETH)</option>
                                     <option value="SOL/USDT">Solana (SOL)</option>
                                     <option value="XRP/USDT">Ripple (XRP)</option>
+                                    <option value="ADA/USDT">Cardano (ADA)</option>
+                                    <option value="BNB/USDT">Binance Coin (BNB)</option>
+                                    <option value="DOGE/USDT">Dogecoin (DOGE)</option>
                                 </select>
                             </div>
 
@@ -126,6 +152,7 @@
                                     <option value="RSI_OVERSOLD">RSI Oversold</option>
                                     <option value="MACD_BULL_CROSS">MACD Bull Cross</option>
                                     <option value="BB_SQUEEZE">Bollinger Squeeze</option>
+                                    <option value="VOLUME_SURGE">Volume Surge</option>
                                 </select>
                             </div>
 
