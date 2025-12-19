@@ -1,19 +1,20 @@
 services:
-services:
-  # 1. The Dashboard (Web Service)
+  # 1. Dashboard (Web Service)
   - type: web
     name: crypto-pulse-api
     runtime: python
+    plan: starter # Matches your new plan
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn web_api:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.12
 
-  # 2. The Scanner & Bot (Background Worker)
+  # 2. Scanner & Bot (Background Worker)
   - type: worker
     name: crypto-scanner-bot
     runtime: python
+    plan: starter # Matches your new plan
     buildCommand: pip install -r requirements.txt
     startCommand: python run_bot.py
     envVars:
