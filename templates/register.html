@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}"> 
     
     <style>
-        /* Minimal inline style for centering the form */
         body {
             display: flex;
             justify-content: center;
@@ -43,7 +42,7 @@
         .register-btn {
             width: 100%;
             padding: 10px;
-            background-color: #4CAF50; /* Green */
+            background-color: #4CAF50;
             color: white;
             border: none;
             border-radius: 4px;
@@ -53,27 +52,25 @@
         .register-btn:hover {
             background-color: #45a049;
         }
-        .text-warning, .text-danger, .text-success {
-            margin-top: 10px;
-            padding: 10px;
-            border-radius: 4px;
-        }
-        .text-danger { background-color: #fdd; color: #d00; }
-        .text-success { background-color: #dfd; color: #0d0; }
+        .text-danger { background-color: #fdd; color: #d00; padding: 10px; border-radius: 4px; margin-bottom: 10px; display: none; }
+        .text-success { background-color: #dfd; color: #0d0; padding: 10px; border-radius: 4px; margin-bottom: 10px; display: none; }
         .text-info { text-align: center; margin-top: 15px; }
     </style>
 </head>
 <body>
     <div class="auth-container">
         <h2>Register for Crypto Pulse</h2>
-        <div id="registerMessage" class="text-info"></div>
+        
+        <div id="errorMessage" class="text-danger"></div>
+        <div id="successMessage" class="text-success"></div>
+
         <div class="form-group">
             <label for="registerEmail">Email</label>
-            <input type="email" id="registerEmail" required>
+            <input type="email" id="registerEmail" placeholder="email@example.com" required>
         </div>
         <div class="form-group">
             <label for="registerPassword">Password</label>
-            <input type="password" id="registerPassword" required>
+            <input type="password" id="registerPassword" placeholder="Min 6 characters" required>
         </div>
         <div class="form-group">
             <label for="confirmPassword">Confirm Password</label>
@@ -84,8 +81,58 @@
         <p class="text-info">Already have an account? <a href="{{ url_for('login_page') }}">Login here</a></p>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
-    <script src="{{ url_for('static', filename='scripts.js') }}"></script> 
+    <script>
+        async function handleRegistration() {
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            const errorDiv = document.getElementById('errorMessage');
+            const successDiv = document.getElementById('successMessage');
+
+            // Reset messages
+            errorDiv.style.display = 'none';
+            successDiv.style.display = 'none';
+
+            // 1. Basic Validation
+            if (password !== confirmPassword) {
+                errorDiv.textContent = "Passwords do not match!";
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            if (password.length < 6) {
+                errorDiv.textContent = "Password must be at least 6 characters.";
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            try {
+                // 2. Call your Flask API
+                const response = await fetch('/api/signup', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    successDiv.textContent = "Account created! Redirecting to login...";
+                    successDiv.style.display = 'block';
+                    // Redirect after 2 seconds
+                    setTimeout(() => {
+                        window.location.href = "{{ url_for('login_page') }}";
+                    }, 2000);
+                } else {
+                    errorDiv.textContent = data.error || "Registration failed.";
+                    errorDiv.style.display = 'block';
+                }
+            } catch (err) {
+                errorDiv.textContent = "Connection error. Is the server running?";
+                errorDiv.style.display = 'block';
+                console.error("Fetch error:", err);
+            }
+        }
+    </script>
 </body>
 </html>

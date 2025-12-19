@@ -1,26 +1,21 @@
 services:
+services:
+  # 1. The Dashboard (Web Service)
   - type: web
     name: crypto-pulse-api
-    env: python
-    branch: main
-    
-    build: 
-      buildCommand: pip install -r requirements.txt
-      startCommand: gunicorn web_api:app
-      
-      apt:
-        packages:
-          - libta-lib-dev
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn web_api:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12
 
+  # 2. The Scanner & Bot (Background Worker)
   - type: worker
-    name: alert-engine-worker
-    env: python
-    branch: main
-    
-    build:
-      buildCommand: pip install -r requirements.txt
-      startCommand: python alert_engine.py
-      
-      apt:
-        packages:
-          - libta-lib-dev
+    name: crypto-scanner-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python run_bot.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12

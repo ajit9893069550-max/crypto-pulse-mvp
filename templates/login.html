@@ -8,7 +8,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     
     <style>
-        /* Simple inline CSS for the login container */
         body { 
             display: flex; 
             justify-content: center; 
@@ -52,7 +51,6 @@
             background-color: #0056b3; 
         }
         
-        /* New styles for Google button */
         .google-btn {
             width: 100%; 
             padding: 10px; 
@@ -67,14 +65,9 @@
             align-items: center;
             justify-content: center;
         }
-        .google-btn:hover {
-            background-color: #f0f0f0;
-        }
-        .google-btn img {
-            width: 20px;
-            height: 20px;
-            margin-right: 10px;
-        }
+        .google-btn:hover { background-color: #f0f0f0; }
+        .google-btn img { width: 20px; height: 20px; margin-right: 10px; }
+        
         .separator {
             margin: 20px 0;
             color: #aaa;
@@ -89,17 +82,11 @@
             height: 1px;
             background: #ddd;
         }
-        .separator::before {
-            left: 0;
-        }
-        .separator::after {
-            right: 0;
-        }
+        .separator::before { left: 0; }
+        .separator::after { right: 0; }
 
-        /* Styles for JavaScript messages */
-        .text-danger { color: #dc3545; }
-        .text-success { color: #28a745; }
-        .text-warning { color: #ffc107; }
+        .text-danger { color: #dc3545; margin-bottom: 10px; display: block; }
+        .text-success { color: #28a745; margin-bottom: 10px; display: block; }
         .text-info { margin-top: 15px; font-size: 14px; }
     </style>
 </head>
@@ -114,19 +101,89 @@
 
         <div class="separator">OR</div>
 
+        <div id="loginMessage"></div>
+
         <input type="email" id="loginEmail" class="login-input" placeholder="Email (e.g., user@example.com)" required>
         <input type="password" id="loginPassword" class="login-input" placeholder="Password" required>
         
         <button class="login-btn" onclick="handleLogin()">Login with Email</button>
         
-        <p id="loginMessage" class="text-info"></p>
-        
-        <p><small>Don't have an account? <a href="{{ url_for('register_page') }}">Register here</a></small></p>
-
+        <p class="text-info">
+            <small>Don't have an account? <a href="{{ url_for('register_page') }}">Register here</a></small>
+        </p>
     </div>
     
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
-    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <script>
+        // 1. Initialize Supabase for the frontend OAuth flow
+        // These will be fetched from your config API
+        let supabaseClient = null;
+
+        async function initSupabase() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                supabaseClient = supabase.createClient(config.SUPABASE_URL, config.SUPABASE_KEY);
+            } catch (err) {
+                console.error("Could not initialize Supabase client", err);
+            }
+        }
+        initSupabase();
+
+        // 2. Google Login Handler
+        document.getElementById('googleLoginButton').addEventListener('click', async () => {
+            if (!supabaseClient) {
+                alert("Supabase is still loading, please wait a moment.");
+                return;
+            }
+            
+            const { data, error } = await supabaseClient.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    // This redirects back to your index page after Google login
+                    redirectTo: window.location.origin + "{{ url_for('dashboard_home') }}"
+                }
+            });
+
+            if (error) {
+                console.error("Google Auth Error:", error.message);
+                document.getElementById('loginMessage').innerHTML = `<span class="text-danger">Google Login Failed</span>`;
+            }
+        });
+
+        // 3. Existing Email Login Handler
+        async function handleLogin() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            const messageDiv = document.getElementById('loginMessage');
+
+            messageDiv.innerHTML = '';
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    localStorage.setItem('access_token', data.access_token);
+                    localStorage.setItem('user_id', data.user_id);
+                    messageDiv.innerHTML = '<span class="text-success">Login successful! Redirecting...</span>';
+                    setTimeout(() => {
+                        window.location.href = "{{ url_for('dashboard_home') }}";
+                    }, 1000);
+                } else {
+                    messageDiv.innerHTML = `<span class="text-danger">${data.error || 'Login failed'}</span>`;
+                }
+            } catch (err) {
+                console.error("Login Error:", err);
+                messageDiv.innerHTML = '<span class="text-danger">Server connection error.</span>';
+            }
+        }
+    </script>
 </body>
 </html>

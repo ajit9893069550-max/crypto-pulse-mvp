@@ -1,8 +1,33 @@
-# Critical Secrets
+# --- Critical Secrets (NEVER COMMIT) ---
 .env
+*.env
+secrets.json
 
-# Python Environment/Build Files
+# --- Python Junk & Environments ---
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+env/
 venv/
-*.whl
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+
+# --- Database & Logs ---
+*.log
+*.sqlite
+*.db
+
+# --- Editor / OS Specific ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Distribution / Build ---
+dist/
+build/
+*.egg-info/

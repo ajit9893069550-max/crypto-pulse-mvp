@@ -1,101 +1,152 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Pulse Alert Management</title>
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CryptoPulse | Intelligence Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
 </head>
 <body>
 
-    <div class="dashboard-container">
-        
+    <div class="dashboard-wrapper">
         <aside class="sidebar">
-            <div class="asset-list-header">
-                <h3 id="sidebarHeader">Supported Pairs (Loading...)</h3> 
-                <a href="#" class="group-link">+ New group</a>
+            <div class="sidebar-header">
+                <h3>Signal Filters</h3>
             </div>
             
-            <div id="live-asset-list" class="asset-list">
-                <div class="asset-item">
-                    <span class="ticker">Loading data...</span>
-                </div>
-            </div>
+            <ul id="signalFilters" class="sidebar-nav">
+                <li class="nav-item active" data-type="ALL">🌍 All Live Signals</li>
+                
+                <p class="menu-label">Trend Following</p>
+                <li class="nav-item" data-type="GOLDEN_CROSS">🟡 Golden Cross</li>
+                <li class="nav-item" data-type="DEATH_CROSS">💀 Death Cross</li>
+                <li class="nav-item" data-type="EMA_20_PULLBACK">🔄 EMA 20 Pullback</li>
+                <li class="nav-item" data-type="NEW_HIGH">🚀 New 24h High</li>
+
+                <p class="menu-label">Momentum & RSI</p>
+                <li class="nav-item" data-type="RSI_OVERSOLD">📉 RSI Oversold</li>
+                <li class="nav-item" data-type="RSI_OVERBOUGHT">📈 RSI Overbought</li>
+                <li class="nav-item" data-type="RSI_BULLISH_DIV">⚖️ RSI Bullish Div</li>
+                <li class="nav-item" data-type="STOCH_RSI_BULLISH">⚡ Stoch RSI Bullish</li>
+
+                <p class="menu-label">MACD Signals</p>
+                <li class="nav-item" data-type="MACD_BULL_CROSS">🟢 MACD Bull Cross</li>
+                <li class="nav-item" data-type="MACD_BEAR_CROSS">🔴 MACD Bear Cross</li>
+
+                <p class="menu-label">Volatility & Volume</p>
+                <li class="nav-item" data-type="BB_SQUEEZE">🤐 BB Squeeze</li>
+                <li class="nav-item" data-type="BB_UPPER_BREAKOUT">☁️ BB Upper Breakout</li>
+                <li class="nav-item" data-type="BB_LOWER_TOUCH">☁️ BB Lower Touch</li>
+                <li class="nav-item" data-type="BULLISH_ENGULFING">🕯️ Bullish Engulfing</li>
+                <li class="nav-item" data-type="VOLUME_SURGE">📊 Volume Surge</li>
+            </ul>
         </aside>
 
         <main class="main-content">
-            
-            <header class="main-header">
-                <div class="logo">
-                    <span style="font-size: 24px;">Crypto Pulse</span>
-                </div>
-                <div class="nav-links">
-                    <a href="{{ url_for('index_page') }}">Dashboard</a>
-                    <a href="#">+ Alert</a>
-                    <span id="authStatusLink">
-                        </span>
+            <header class="top-nav">
+                <button id="menuToggle" class="menu-hamburger" title="Open Filters">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </button>
+
+                <div class="brand">CryptoPulse <span>Scanner</span></div>
+                
+                <div class="nav-actions">
+                    <button id="themeToggle" class="btn-alerts" title="Toggle Light/Dark Mode">🌓</button>
+                    <span id="authStatusLink"></span>
                 </div>
             </header>
 
-            <section class="main-alert-body"> 
+            <div class="content-body">
                 
-                <div class="alert-panel-wrapper">
-                    <div class="greeting">
-                        <h1 id="greetingMessage">Please Log In</h1>
+                <section class="display-section">
+                    <div class="section-header">
+                        <h2 id="currentCategoryTitle">All Live Market Signals</h2>
+                        <span class="update-tag">Updates every 60s (IST)</span>
                     </div>
-                    
-                    <div id="alertCreationSection" style="display: none;">
-                        <div class="alert-input-group">
-                            <input type="text" id="alertInput" placeholder="TYPE ALERT YOU WANT" class="alert-input">
-                            
-                            <button id="createAlertButton" class="create-alert-btn">
-                                <span class="btn-icon">⚡</span> Create Alert 
-                            </button>
-                        </div>
-                        
-                        <div id="alertMessage" class="text-info" style="margin-top: 10px;"></div>
 
-                        <div id="suggestionArea" class="suggestion-area">
-                            <p>💡 **Quick Examples:**</p>
-                            <div class="suggestion-list">
-                                <span class="suggestion-tag" onclick="useSuggestion('BTC > 60000')">Price Alert: BTC above 60000</span>
-                                <span class="suggestion-tag" onclick="useSuggestion('Golden Cross on ETH 4H')">MA Cross: Golden Cross on ETH 4H</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <section class="alert-management-section">
-                    <div class="management-header">
-                        <h2>⚡ My Active Alerts</h2>
-                        <button onclick="fetchAndDisplayAlerts()" class="refresh-alerts-btn">Refresh List</button> 
-                    </div>
-                    
-                    <table id="myAlertsTable">
-                        <thead>
-                            <tr>
-                                <th>Asset</th>
-                                <th>Timeframe</th>
-                                <th>Condition</th>
-                                <th>Status</th>
-                                <th>Action</th>
-                            </tr>
-                        </thead>
-                        
-                        <tbody id="alertsList">
+                    <div class="table-container">
+                        <table id="marketScansTable">
+                            <thead>
+                                <tr>
+                                    <th>Asset</th>
+                                    <th>TF</th>
+                                    <th>Signal Type</th>
+                                    <th>Detected At</th>
+                                </tr>
+                            </thead>
+                            <tbody id="marketScansList">
+                                <tr><td colspan="4" style="text-align:center; padding:50px;">Initializing scanner...</td></tr>
                             </tbody>
-                    </table>
-                    
-                    <p id="noAlertsMessage" style="display: block; margin-top: 20px;">Not Logged In. Log in to manage alerts.</p>
+                        </table>
+                    </div>
                 </section>
-            </section>
 
+                <aside class="alert-sidebar">
+                    
+                    <div id="telegramLinkSection">
+                        <h4 style="color: #0088cc; margin-bottom: 5px; display: flex; align-items: center;">
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/8/82/Telegram_logo.svg" width="20" style="margin-right: 8px;">
+                            Telegram Alerts
+                        </h4>
+                        <p style="font-size: 12px; margin-bottom: 12px; color: var(--text-dim);">Get instant notifications on your phone.</p>
+                        <a id="connectTelegramBtn" href="#" target="_blank" class="btn-create" style="display: block; text-align: center; background-color: #0088cc; text-decoration: none; font-size: 13px; border: none; padding: 10px;">
+                            Link Telegram Bot
+                        </a>
+                    </div>
+
+                    <div class="card">
+                        <h3 style="color: var(--accent-green); margin-bottom: 15px; font-size: 16px;">🚀 Create New Alert</h3>
+                        <form id="createAlertForm">
+                            <div class="input-group">
+                                <label class="menu-label">Asset</label>
+                                <select id="alertAsset" class="btn-alerts" required>
+                                    <option value="BTC/USDT">Bitcoin (BTC)</option>
+                                    <option value="ETH/USDT">Ethereum (ETH)</option>
+                                    <option value="SOL/USDT">Solana (SOL)</option>
+                                    <option value="XRP/USDT">Ripple (XRP)</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label class="menu-label">Timeframe</label>
+                                <select id="alertTimeframe" class="btn-alerts" required>
+                                    <option value="15m">15 Minutes</option>
+                                    <option value="1h">1 Hour</option>
+                                    <option value="4h">4 Hours</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label class="menu-label">Signal Type</label>
+                                <select id="alertType" class="btn-alerts" required>
+                                    <option value="GOLDEN_CROSS">Golden Cross</option>
+                                    <option value="RSI_OVERSOLD">RSI Oversold</option>
+                                    <option value="MACD_BULL_CROSS">MACD Bull Cross</option>
+                                    <option value="BB_SQUEEZE">Bollinger Squeeze</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" class="btn-create" style="width:100%; padding:12px; font-weight: bold;">Activate Alert</button>
+                        </form>
+                        <div id="createAlertStatus" style="margin-top:10px; text-align:center; font-size:12px;"></div>
+                    </div>
+
+                    <div class="card" style="margin-top: 25px;">
+                        <h3 style="font-size: 16px; margin-bottom: 15px; color: var(--text-main);">📋 My Active Alerts</h3>
+                        <div id="myAlertsList">
+                            <p style="color: var(--text-dim); font-size: 13px;">No active alerts.</p>
+                        </div>
+                    </div>
+
+                </aside>
+            </div>
         </main>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    
     <script src="{{ url_for('static', filename='scripts.js') }}"></script>
 </body>
 </html>
