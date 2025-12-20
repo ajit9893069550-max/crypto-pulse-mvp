@@ -18,7 +18,7 @@ def get_db_connection():
     if not DATABASE_URL:
         logger.error("❌ DATABASE_URL is missing from environment variables!")
         return None
-    
+     
     # --- SANITIZATION LOGIC ---
     # 1. Fix the "ppostgresql" typo if it exists
     db_url = DATABASE_URL
@@ -64,19 +64,16 @@ def upsert_signal(asset, timeframe, signal_type):
         conn.close()
 
 def fetch_triggered_alerts():
-    """
-    Finds ACTIVE alerts that match recent market scans.
-    Filters for users who have linked their Telegram.
-    """
+    """Finds ACTIVE alerts and matches them with recent scans."""
     conn = get_db_connection()
     if not conn: 
-        logger.error("Skipping fetch: No database connection.")
         return []
     
     try:
         with conn.cursor() as cur:
-            # Matches alerts with scans from the last 20 mins
-            cur.execute("""
+            # Ensure there is NO comma after 'public.alerts a'
+            # Ensure we cast the TEXT user_uuid to UUID using ::uuid
+            query = """
                 SELECT 
                     a.id, 
                     a.asset, 
@@ -84,7 +81,7 @@ def fetch_triggered_alerts():
                     a.alert_type, 
                     u.telegram_chat_id
                 FROM public.alerts a
-                JOIN public.users u ON a.user_id = u.user_uuid
+                JOIN public.users u ON a.user_id = u.user_uuid::uuid
                 JOIN public.market_scans s ON 
                     a.asset = s.asset 
                     AND a.timeframe = s.timeframe 
@@ -92,12 +89,13 @@ def fetch_triggered_alerts():
                 WHERE a.status = 'ACTIVE' 
                 AND u.telegram_chat_id IS NOT NULL
                 AND s.detected_at > NOW() - INTERVAL '20 minutes';
-            """)
+            """
+            cur.execute(query)
             results = cur.fetchall()
-            logger.info(f"Fetched {len(results)} triggered alerts.")
+            logger.info(f"Successfully fetched {len(results)} triggered alerts.")
             return results
     except Exception as e:
-        logger.error(f"Error fetching triggered alerts: {e}")
+        logger.error(f"Error in fetch_triggered_alerts: {e}")
         return []
     finally:
         conn.close()
