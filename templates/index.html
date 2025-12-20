@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>CryptoPulse | Intelligence Dashboard</title>
+    
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
     
@@ -11,37 +12,23 @@
         (function() {
             const hash = window.location.hash;
             if (hash && hash.includes("access_token=")) {
-                // Parse the fragment parameters
                 const params = new URLSearchParams(hash.replace("#", "?"));
                 const accessToken = params.get("access_token");
                 const refreshToken = params.get("refresh_token");
 
                 if (accessToken) {
-                    // Save to localStorage for our frontend API calls
+                    // Save to localStorage for frontend API calls
                     localStorage.setItem("supabase_token", accessToken);
                     if (refreshToken) localStorage.setItem("supabase_refresh_token", refreshToken);
                     
                     console.log("OAuth Login Successful. Token saved.");
                     
-                    // Clean the URL hash without reloading the page to prevent "Not Found" loops
-                    window.history.replaceState(null, null, window.location.pathname);
+                    // Clean the URL hash without reloading to prevent "Unexpected token <" errors
+                    window.history.replaceState(null, null, "/");
                 }
             }
         })();
     </script>
-    <script>
-        const hash = window.location.hash;
-        if (hash && hash.includes("access_token=")) {
-            const params = new URLSearchParams(hash.replace("#", "?"));
-            const token = params.get("access_token");
-            if (token) {
-                localStorage.setItem("supabase_token", token);
-            // Clean the URL and stay on the dashboard
-                window.history.replaceState(null, null, "/");
-            }
-        }
-    </script>
-    
 </head>
 <body>
 
@@ -96,7 +83,6 @@
             </header>
 
             <div class="content-body">
-                
                 <section class="display-section">
                     <div class="section-header">
                         <h2 id="currentCategoryTitle">All Live Market Signals</h2>
@@ -121,7 +107,6 @@
                 </section>
 
                 <aside class="alert-sidebar">
-                    
                     <div id="telegramLinkSection">
                         <h4 style="color: #0088cc; margin-bottom: 5px; display: flex; align-items: center;">
                             <img src="https://upload.wikimedia.org/wikipedia/commons/8/82/Telegram_logo.svg" width="20" style="margin-right: 8px;">
@@ -180,7 +165,6 @@
                             <p style="color: var(--text-dim); font-size: 13px;">No active alerts.</p>
                         </div>
                     </div>
-
                 </aside>
             </div>
         </main>
