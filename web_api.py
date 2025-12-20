@@ -28,7 +28,7 @@ if not all([SUPABASE_URL, SUPABASE_KEY, JWT_SECRET]):
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = Flask(__name__,template_folder='templates')
+app = Flask(__name__, template_folder='templates')
 
 # --- JWT Configuration ---
 app.config["JWT_SECRET_KEY"] = JWT_SECRET 
@@ -36,11 +36,9 @@ app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
 jwt = JWTManager(app)
 
 # --- CORS ---
-# Allows your front-end (index.html) to communicate with this API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- CCXT CONFIGURATION (Market Data Only) ---
-# This is used ONLY for the market summary table on your website
 EXCHANGE = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'spot', 'adjustForTimeDifference': True},
@@ -53,33 +51,22 @@ EXCHANGE = ccxt.binance({
 SUPPORTED_TOKENS = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE'] 
 
 # =================================================================
-#                 FRONT-END ROUTES (HTML Serving)
+#                         API ROUTES (JSON)
 # =================================================================
 
-@app.route('/login.html')
-def login_page():
-    return render_template('login.html')
-
-@app.route('/register.html')
-def register_page():
-    return render_template('register.html')
-
-@app.route('/', defaults={'path': ''}, endpoint='dashboard_home') # Added endpoint name
-@app.route('/<path:path>')
-def catch_all(path):
-    # Serves the main dashboard and handles Google/Supabase redirects
-    return render_template('index.html')
-
-# =================================================================
-#                         API AUTH ROUTES
-# =================================================================
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """Provides keys for the frontend to initialize Supabase."""
+    return jsonify({
+        "SUPABASE_URL": SUPABASE_URL, 
+        "SUPABASE_KEY": SUPABASE_KEY
+    }), 200
 
 @app.route('/api/signup', methods=['POST'])
 def signup():
     data = request.get_json()
     try:
         response = supabase.auth.sign_up({"email": data['email'], "password": data['password']})
-        # Note: If email confirmation is ON in Supabase, the user won't be fully "created" until they click the link
         return jsonify({"message": "Success", "user_id": response.user.id}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -90,15 +77,10 @@ def login():
     try:
         response = supabase.auth.sign_in_with_password({"email": data['email'], "password": data['password']})
         if response.user:
-            # Create a local JWT for the web session
             token = create_access_token(identity=str(response.user.id))
             return jsonify(access_token=token, user_id=response.user.id), 200
     except Exception as e:
         return jsonify({"error": "Invalid credentials"}), 401
-
-# =================================================================
-#                        DATA & ALERTS ROUTES
-# =================================================================
 
 @app.route('/api/signals', methods=['GET'])
 def get_signals():
@@ -121,7 +103,6 @@ def create_alert():
     if not conn: return jsonify({"error": "DB Fail"}), 500
     try:
         with conn.cursor() as cur:
-            # Added type validation/casting safety for user_uuid
             cur.execute("""
                 INSERT INTO public.alerts (user_id, asset, timeframe, alert_type, status)
                 VALUES (%s::uuid, %s, %s, %s, 'ACTIVE')
@@ -139,7 +120,6 @@ def create_alert():
 def get_my_alerts():
     user_id = get_jwt_identity()
     try:
-        # Check if user exists in the public.users table (important for joining later)
         profile = supabase.table('users').select('user_uuid').eq('user_uuid', user_id).execute()
         if not profile.data:
             supabase.table('users').insert({'user_uuid': user_id}).execute()
@@ -179,6 +159,30 @@ def get_market_summary():
         return jsonify({"error": str(e)}), 500
 
 # =================================================================
+#                   FRONT-END ROUTES (HTML)
+# =================================================================
+
+@app.route('/login.html')
+def login_page():
+    return render_template('login.html')
+
+@app.route('/register.html')
+def register_page():
+    return render_template('register.html')
+
+# --- THIS MUST BE AT THE VERY BOTTOM ---
+@app.route('/', defaults={'path': ''}, endpoint='dashboard_home')
+@app.route('/<path:path>')
+def catch_all(path):
+    # CRITICAL: If the URL starts with api/ but reached this point, 
+    # it means the real API route was missed. 
+    # Return a 404 JSON error, NOT the HTML template.
+    if path.startswith('api/'):
+        return jsonify({"error": "API Route Not Found"}), 404
+    
+    return render_template('index.html')
+
+# =================================================================
 #                        ERROR HANDLERS
 # =================================================================
 
@@ -191,6 +195,5 @@ def expired_token_callback(jwt_header, jwt_payload):
     return jsonify({"error": "Token expired"}), 401
 
 if __name__ == "__main__":
-    # Render provides the PORT variable automatically
     port = int(os.environ.get("PORT", 5001)) 
     app.run(host='0.0.0.0', port=port)
