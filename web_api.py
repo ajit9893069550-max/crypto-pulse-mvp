@@ -28,7 +28,7 @@ if not all([SUPABASE_URL, SUPABASE_KEY, JWT_SECRET]):
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-app = Flask(__name__)
+app = Flask(__name__,template_folder='templates')
 
 # --- JWT Configuration ---
 app.config["JWT_SECRET_KEY"] = JWT_SECRET 
@@ -64,7 +64,7 @@ def login_page():
 def register_page():
     return render_template('register.html')
 
-@app.route('/', defaults={'path': ''})
+@app.route('/', defaults={'path': ''}, endpoint='dashboard_home') # Added endpoint name
 @app.route('/<path:path>')
 def catch_all(path):
     # Serves the main dashboard and handles Google/Supabase redirects
