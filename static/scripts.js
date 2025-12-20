@@ -96,6 +96,10 @@ async function checkSupabaseSession() {
 // 3. MARKET SIGNALS (Display)
 // ==========================================================
 
+// ==========================================================
+// 3. MARKET SIGNALS (Display)
+// ==========================================================
+
 async function fetchMarketSignals(type = 'ALL') {
     const scanList = document.getElementById('marketScansList');
     if (!scanList) return;
@@ -119,9 +123,22 @@ async function fetchMarketSignals(type = 'ALL') {
             const signalTime = new Date(dateStr);
             const isValid = !isNaN(signalTime.getTime());
             
-            const now = new Date();
-            const diffInMinutes = Math.abs(now - signalTime) / (1000 * 60);
-            const isNew = isValid && diffInMinutes <= 20; 
+            // --- UPDATED DYNAMIC "NEW" BADGE LOGIC ---
+            let isNew = false;
+            if (isValid) {
+                const now = new Date();
+                const diffInMinutes = Math.abs(now - signalTime) / (1000 * 60);
+                
+                // Logic: Badge stays visible based on the timeframe interval
+                if (s.timeframe === '15m' && diffInMinutes < 15) {
+                    isNew = true;
+                } else if (s.timeframe === '1h' && diffInMinutes < 60) {
+                    isNew = true;
+                } else if (s.timeframe === '4h' && diffInMinutes < 240) {
+                    isNew = true;
+                }
+            }
+            
             const newBadge = isNew ? '<span class="new-tag">NEW</span>' : '';
 
             const displayDateTime = isValid ? signalTime.toLocaleString('en-IN', { 
