@@ -256,7 +256,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (createForm) {
         createForm.onsubmit = async (e) => {
             e.preventDefault();
-            const token = getToken();
+            const token = localStorage.getItem('supabase_token');
             if (!token) return alert("Please login first");
 
             statusDiv.innerText = "⏳ Activating...";
