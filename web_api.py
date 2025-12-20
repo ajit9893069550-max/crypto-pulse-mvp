@@ -3,7 +3,7 @@ import os
 import json
 import logging
 from datetime import datetime, timedelta, timezone 
-from flask import Flask, request, jsonify, render_template, send_from_directory
+from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS 
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, JWTManager
 from supabase import create_client, Client
@@ -17,7 +17,7 @@ load_dotenv()
 
 # --- CONFIGURATION & INITIALIZATION ---
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("WebAPI")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
@@ -36,23 +36,24 @@ app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
 jwt = JWTManager(app)
 
 # --- CORS ---
+# Allows your front-end (index.html) to communicate with this API
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# --- CCXT CONFIGURATION (REFINED MIRROR) ---
-# Variable renamed to uppercase EXCHANGE for global consistency and to match your function call
+# --- CCXT CONFIGURATION (Market Data Only) ---
+# This is used ONLY for the market summary table on your website
 EXCHANGE = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'spot', 'adjustForTimeDifference': True},
     'urls': {
         'api': {
-            'public': 'https://data-api.binance.vision/api/v3', # Reliable mirror for market data
+            'public': 'https://data-api.binance.vision/api/v3', 
         }
     }
 })
 SUPPORTED_TOKENS = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE'] 
 
 # =================================================================
-#                 FRONT-END ROUTES
+#                 FRONT-END ROUTES (HTML Serving)
 # =================================================================
 
 @app.route('/login.html')
@@ -66,7 +67,7 @@ def register_page():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def catch_all(path):
-    # This serves index.html for everything else, including Google Auth redirects
+    # Serves the main dashboard and handles Google/Supabase redirects
     return render_template('index.html')
 
 # =================================================================
@@ -78,6 +79,7 @@ def signup():
     data = request.get_json()
     try:
         response = supabase.auth.sign_up({"email": data['email'], "password": data['password']})
+        # Note: If email confirmation is ON in Supabase, the user won't be fully "created" until they click the link
         return jsonify({"message": "Success", "user_id": response.user.id}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -88,18 +90,15 @@ def login():
     try:
         response = supabase.auth.sign_in_with_password({"email": data['email'], "password": data['password']})
         if response.user:
+            # Create a local JWT for the web session
             token = create_access_token(identity=str(response.user.id))
             return jsonify(access_token=token, user_id=response.user.id), 200
     except Exception as e:
         return jsonify({"error": "Invalid credentials"}), 401
 
 # =================================================================
-#                      DATA & ALERTS ROUTES
+#                        DATA & ALERTS ROUTES
 # =================================================================
-
-@app.route('/api/config', methods=['GET'])
-def get_config():
-    return jsonify({"SUPABASE_URL": SUPABASE_URL, "SUPABASE_KEY": SUPABASE_KEY}), 200
 
 @app.route('/api/signals', methods=['GET'])
 def get_signals():
@@ -122,14 +121,15 @@ def create_alert():
     if not conn: return jsonify({"error": "DB Fail"}), 500
     try:
         with conn.cursor() as cur:
+            # Added type validation/casting safety for user_uuid
             cur.execute("""
                 INSERT INTO public.alerts (user_id, asset, timeframe, alert_type, status)
-                VALUES (%s, %s, %s, %s, 'ACTIVE')
+                VALUES (%s::uuid, %s, %s, %s, 'ACTIVE')
             """, (user_uuid, data['asset'], data['timeframe'], data['signal_type']))
             conn.commit()
         return jsonify({"success": True}), 201
     except Exception as e:
-        logger.error(f"Alert Error: {e}")
+        logger.error(f"Create Alert Error: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
         conn.close()
@@ -139,6 +139,7 @@ def create_alert():
 def get_my_alerts():
     user_id = get_jwt_identity()
     try:
+        # Check if user exists in the public.users table (important for joining later)
         profile = supabase.table('users').select('user_uuid').eq('user_uuid', user_id).execute()
         if not profile.data:
             supabase.table('users').insert({'user_uuid': user_id}).execute()
@@ -164,18 +165,32 @@ def delete_alert():
 def get_market_summary():
     try:
         symbols = [f'{token}/USDT' for token in SUPPORTED_TOKENS]
-        # Fixed: Variable name matches the global EXCHANGE initialization
         tickers = EXCHANGE.fetch_tickers(symbols)
-        summary = [{'symbol': t['symbol'].replace('/', ''), 'price': t['last'], 'change_percent': t['percentage']} for t in tickers.values()]
+        summary = []
+        for t in tickers.values():
+            summary.append({
+                'symbol': t['symbol'].replace('/', ''), 
+                'price': t['last'], 
+                'change_percent': t['percentage']
+            })
         return jsonify(summary), 200
     except Exception as e:
         logger.error(f"Market Summary Error: {e}")
         return jsonify({"error": str(e)}), 500
 
+# =================================================================
+#                        ERROR HANDLERS
+# =================================================================
+
 @jwt.unauthorized_loader
 def unauthorized_callback(c):
     return jsonify({"error": "No token provided"}), 401
 
+@jwt.expired_token_loader
+def expired_token_callback(jwt_header, jwt_payload):
+    return jsonify({"error": "Token expired"}), 401
+
 if __name__ == "__main__":
+    # Render provides the PORT variable automatically
     port = int(os.environ.get("PORT", 5001)) 
     app.run(host='0.0.0.0', port=port)
