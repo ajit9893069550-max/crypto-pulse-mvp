@@ -66,7 +66,7 @@ async function checkSupabaseSession() {
     const initialized = await initializeSupabase();
     if (!initialized) return null;
 
-    // Check for existing session from Supabase Client (standard login)
+    // 1. Check if we already have a standard session
     const { data: { session } } = await supabaseClient.auth.getSession();
     
     if (session) {
@@ -75,17 +75,20 @@ async function checkSupabaseSession() {
         return session;
     } 
 
-    // If no session but we have a token (from Google OAuth fragment script)
+    // 2. IMPORTANT: If no session but we have a token (from Google OAuth)
     const token = getToken();
     if (token) {
-        // Try to get user info to verify token and get User ID
-        const { data: { user } } = await supabaseClient.auth.getUser(token);
-        if (user) {
-            localStorage.setItem(USER_ID_STORAGE_KEY, user.id);
-            return { access_token: token, user: user };
+        // Explicitly set the session in the Supabase client so it can be used for queries
+        const { data, error } = await supabaseClient.auth.setSession({
+            access_token: token,
+            refresh_token: localStorage.getItem('supabase_refresh_token') || ''
+        });
+
+        if (data.user) {
+            localStorage.setItem(USER_ID_STORAGE_KEY, data.user.id);
+            return { access_token: token, user: data.user };
         }
     }
-    
     return null;
 }
 
