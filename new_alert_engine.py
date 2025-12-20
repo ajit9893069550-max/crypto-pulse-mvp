@@ -124,7 +124,7 @@ async def analyze_asset(symbol, timeframe):
                 }
                 try:
                     # Upsert handles the UNIQUE constraint (asset, timeframe, signal_type)
-                    supabase.table('market_scans').upsert(data).execute()
+                    supabase.table('market_scans').upsert((data),on_conflict="asset,timeframe,signal_type").execute()
                     logger.info(f"✅ Signal Saved: {asset_name} | {timeframe} | {signal}")
                 except Exception as db_err:
                     logger.error(f"Supabase Upsert Failed for {asset_name}: {db_err}")
