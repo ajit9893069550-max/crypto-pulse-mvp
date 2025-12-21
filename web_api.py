@@ -20,11 +20,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("WebAPI")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+# CRITICAL: Backend uses Service Role Key to bypass RLS for admin tasks
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
 JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")
 
 if not all([SUPABASE_URL, SUPABASE_KEY, JWT_SECRET]):
-    logger.critical("FATAL: SUPABASE_URL, SUPABASE_KEY, and SUPABASE_JWT_SECRET must be set.")
+    logger.critical("FATAL: Missing SUPABASE_URL, SUPABASE_KEY, or JWT_SECRET.")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -38,15 +39,11 @@ jwt = JWTManager(app)
 # --- CORS ---
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# --- CCXT CONFIGURATION (Market Data Only) ---
+# --- CCXT CONFIGURATION ---
 EXCHANGE = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'spot', 'adjustForTimeDifference': True},
-    'urls': {
-        'api': {
-            'public': 'https://data-api.binance.vision/api/v3', 
-        }
-    }
+    'urls': { 'api': { 'public': 'https://data-api.binance.vision/api/v3' } }
 })
 SUPPORTED_TOKENS = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE'] 
 
@@ -56,10 +53,10 @@ SUPPORTED_TOKENS = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE']
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
-    """Provides keys for the frontend to initialize Supabase."""
+    """Provides keys for the frontend. Frontend uses ANON_KEY."""
     return jsonify({
         "SUPABASE_URL": SUPABASE_URL, 
-        "SUPABASE_KEY": SUPABASE_KEY
+        "SUPABASE_KEY": os.environ.get("SUPABASE_KEY") 
     }), 200
 
 @app.route('/api/signup', methods=['POST'])
@@ -103,7 +100,7 @@ def create_alert():
     if not conn: return jsonify({"error": "DB Fail"}), 500
     try:
         with conn.cursor() as cur:
-            # Force the UUID type here as well
+            # Explicitly cast %s to uuid to satisfy the PostgreSQL type checker
             cur.execute("""
                 INSERT INTO public.alerts (user_id, asset, timeframe, alert_type, status)
                 VALUES (%s::uuid, %s, %s, %s, 'ACTIVE')
@@ -121,14 +118,12 @@ def create_alert():
 def get_my_alerts():
     user_id = get_jwt_identity()
     try:
-        # We must verify the user profile exists before fetching alerts
+        # Check profile exists. Service Role bypasses RLS here.
         profile = supabase.table('users').select('user_uuid').eq('user_uuid', user_id).execute()
         
-        # If no profile exists, create one (this was what triggered the RLS error)
         if not profile.data:
             supabase.table('users').insert({'user_uuid': user_id}).execute()
         
-        # Fetch alerts using the verified identity
         response = supabase.table('alerts').select('*').eq('user_id', user_id).eq('status', 'ACTIVE').execute()
         return jsonify(response.data), 200
     except Exception as e:
@@ -176,16 +171,11 @@ def login_page():
 def register_page():
     return render_template('register.html')
 
-# --- THIS MUST BE AT THE VERY BOTTOM ---
 @app.route('/', defaults={'path': ''}, endpoint='dashboard_home')
 @app.route('/<path:path>')
 def catch_all(path):
-    # CRITICAL: If the URL starts with api/ but reached this point, 
-    # it means the real API route was missed. 
-    # Return a 404 JSON error, NOT the HTML template.
     if path.startswith('api/'):
         return jsonify({"error": "API Route Not Found"}), 404
-    
     return render_template('index.html')
 
 # =================================================================
