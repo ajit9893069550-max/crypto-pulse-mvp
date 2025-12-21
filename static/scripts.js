@@ -3,7 +3,6 @@ const API_BASE_URL = window.location.origin.includes('localhost') || window.loca
     ? 'http://127.0.0.1:5001' 
     : window.location.origin;
 
-// Key used by the index.html fragment script to store OAuth tokens
 const TOKEN_STORAGE_KEY = 'supabase_token'; 
 const USER_ID_STORAGE_KEY = 'user_id'; 
 
@@ -66,7 +65,7 @@ async function checkSupabaseSession() {
     const initialized = await initializeSupabase();
     if (!initialized) return null;
 
-    // 1. Check if we already have a standard session
+    // 1. Check for standard session
     const { data: { session } } = await supabaseClient.auth.getSession();
     
     if (session) {
@@ -75,10 +74,9 @@ async function checkSupabaseSession() {
         return session;
     } 
 
-    // 2. IMPORTANT: If no session but we have a token (from Google OAuth)
+    // 2. Handle Google OAuth token from fragment script
     const token = getToken();
     if (token) {
-        // Explicitly set the session in the Supabase client so it can be used for queries
         const { data, error } = await supabaseClient.auth.setSession({
             access_token: token,
             refresh_token: localStorage.getItem('supabase_refresh_token') || ''
@@ -91,10 +89,6 @@ async function checkSupabaseSession() {
     }
     return null;
 }
-
-// ==========================================================
-// 3. MARKET SIGNALS (Display)
-// ==========================================================
 
 // ==========================================================
 // 3. MARKET SIGNALS (Display)
@@ -129,7 +123,7 @@ async function fetchMarketSignals(type = 'ALL') {
                 const now = new Date();
                 const diffInMinutes = Math.abs(now - signalTime) / (1000 * 60);
                 
-                // Logic: Badge stays visible based on the timeframe interval
+                // Badge stays visible based on timeframe interval
                 if (s.timeframe === '15m' && diffInMinutes < 15) {
                     isNew = true;
                 } else if (s.timeframe === '1h' && diffInMinutes < 60) {
@@ -140,7 +134,6 @@ async function fetchMarketSignals(type = 'ALL') {
             }
             
             const newBadge = isNew ? '<span class="new-tag">NEW</span>' : '';
-
             const displayDateTime = isValid ? signalTime.toLocaleString('en-IN', { 
                 day: '2-digit', month: '2-digit', year: '2-digit',
                 hour: '2-digit', minute: '2-digit', hour12: true 
@@ -171,7 +164,6 @@ async function fetchAndDisplayAlerts() {
     if (!listContainer || !token) return;
 
     try {
-        // Update Telegram Status
         if (supabaseClient && userId) {
             const { data: profile } = await supabaseClient.from('users').select('telegram_chat_id').eq('user_uuid', userId).maybeSingle();
             if (profile && profile.telegram_chat_id) {
@@ -226,22 +218,18 @@ async function deleteAlert(alertId) {
 // ==========================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Theme Initialization
     const htmlTag = document.documentElement;
     const savedTheme = localStorage.getItem('theme') || 'dark';
     htmlTag.setAttribute('data-theme', savedTheme);
     const themeBtn = document.getElementById('themeToggle');
     if (themeBtn) themeBtn.innerText = savedTheme === 'dark' ? '🌓' : '☀️';
 
-    // 2. Auth & Dashboard Data
     await checkSupabaseSession(); 
     updateAuthStatusUI();
     
-    // Initial fetches
     fetchMarketSignals('ALL');
     fetchAndDisplayAlerts();
 
-    // 3. Telegram Link setup
     const telegramBtn = document.getElementById('connectTelegramBtn');
     const userId = getUserId();
     if (telegramBtn && userId) {
@@ -249,7 +237,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         telegramBtn.href = `https://t.me/${botUsername}?start=${userId}`;
     }
 
-    // 4. Create Alert Handling
     const createForm = document.getElementById('createAlertForm');
     const statusDiv = document.getElementById('createAlertStatus');
 
@@ -264,7 +251,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const payload = {
                 asset: document.getElementById('alertAsset').value,
                 timeframe: document.getElementById('alertTimeframe').value,
-                signal_type: document.getElementById('alertType').value // Fixed key to match Flask
+                signal_type: document.getElementById('alertType').value
             };
 
             try {
@@ -293,7 +280,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
     }
 
-    // 5. Sidebar & Mobile Menu Logic
     const menuToggle = document.getElementById('menuToggle');
     const sidebar = document.querySelector('.sidebar');
     if (menuToggle) {
@@ -312,7 +298,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    // 6. Theme Toggle Handler
     if (themeBtn) {
         themeBtn.addEventListener('click', () => {
             const current = htmlTag.getAttribute('data-theme');
@@ -323,7 +308,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // 7. Auto-Refresh Interval (60s)
     setInterval(() => {
         const activeItem = document.querySelector('.nav-item.active');
         fetchMarketSignals(activeItem ? activeItem.getAttribute('data-type') : 'ALL');
