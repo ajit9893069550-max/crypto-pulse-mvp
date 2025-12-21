@@ -121,13 +121,18 @@ def create_alert():
 def get_my_alerts():
     user_id = get_jwt_identity()
     try:
+        # We must verify the user profile exists before fetching alerts
         profile = supabase.table('users').select('user_uuid').eq('user_uuid', user_id).execute()
+        
+        # If no profile exists, create one (this was what triggered the RLS error)
         if not profile.data:
             supabase.table('users').insert({'user_uuid': user_id}).execute()
         
+        # Fetch alerts using the verified identity
         response = supabase.table('alerts').select('*').eq('user_id', user_id).eq('status', 'ACTIVE').execute()
         return jsonify(response.data), 200
     except Exception as e:
+        logger.error(f"My Alerts Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/delete-alert', methods=['POST'])
