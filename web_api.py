@@ -103,6 +103,7 @@ def create_alert():
     if not conn: return jsonify({"error": "DB Fail"}), 500
     try:
         with conn.cursor() as cur:
+            # Force the UUID type here as well
             cur.execute("""
                 INSERT INTO public.alerts (user_id, asset, timeframe, alert_type, status)
                 VALUES (%s::uuid, %s, %s, %s, 'ACTIVE')
@@ -110,8 +111,8 @@ def create_alert():
             conn.commit()
         return jsonify({"success": True}), 201
     except Exception as e:
-        logger.error(f"Create Alert Error: {e}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"SQL Insert Error: {e}")
+        return jsonify({"error": "Database error"}), 500
     finally:
         conn.close()
 
