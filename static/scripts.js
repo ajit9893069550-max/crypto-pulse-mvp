@@ -161,29 +161,44 @@ async function fetchAndDisplayAlerts() {
     if (!listContainer || !token) return;
 
     try {
-        // Update Telegram Status via Supabase query
+        // --- Part A: Telegram Status Logic ---
         if (supabaseClient && userId) {
-            const { data: profile } = await supabaseClient.from('users').select('telegram_chat_id').eq('user_uuid', userId).maybeSingle();
+            // Check if this specific user has a Telegram ID in the public.users table
+            const { data: profile, error: profError } = await supabaseClient
+                .from('users')
+                .select('telegram_chat_id')
+                .eq('user_uuid', userId)
+                .maybeSingle();
+
             if (profile && profile.telegram_chat_id) {
                 telegramSection.innerHTML = `
                     <div style="background: rgba(0, 255, 136, 0.1); padding: 12px; border-radius: 8px; border: 1px solid var(--accent-green);">
-                        <h4 style="color: var(--accent-green); margin: 0; font-size: 13px;">✅ Telegram Linked</h4>
+                        <h4 style="color: var(--accent-green); margin: 0; font-size: 13px; display: flex; align-items: center;">
+                             <img src="https://upload.wikimedia.org/wikipedia/commons/8/82/Telegram_logo.svg" width="16" style="margin-right: 8px;">
+                             Telegram Linked
+                        </h4>
                         <p style="font-size: 11px; color: var(--text-dim); margin-top: 4px;">Receiving signals via Bot.</p>
                     </div>`;
             }
         }
 
-        // Fetch user-specific alerts from API
+        // --- Part B: Fetch Alerts Logic ---
+        // We use the Flask API which uses the JWT to filter by RLS
         const response = await fetch(`${API_BASE_URL}/api/my-alerts`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'Cache-Control': 'no-cache' 
+            }
         });
+        
         const alerts = await response.json();
 
         if (!alerts || alerts.length === 0 || alerts.error) {
-            listContainer.innerHTML = `<p style="color: var(--text-dim); font-size: 13px; text-align:center;">No active alerts.</p>`;
+            listContainer.innerHTML = `<p style="color: var(--text-dim); font-size: 13px; text-align:center; padding: 20px;">No active alerts found.</p>`;
             return;
         }
 
+        // Render alerts if they exist
         listContainer.innerHTML = alerts.map(a => `
             <div class="card" style="margin-bottom: 10px; padding: 12px; border: 1px solid var(--border-color); background: var(--bg-card);">
                 <div style="display: flex; justify-content: space-between; align-items: start;">
@@ -196,9 +211,12 @@ async function fetchAndDisplayAlerts() {
                 </div>
             </div>
         `).join('');
-    } catch (err) { console.error("Fetch Alerts Error:", err); }
-}
 
+    } catch (err) { 
+        console.error("Fetch Alerts Error:", err);
+        listContainer.innerHTML = `<p style="color: var(--danger); font-size: 12px;">Error loading alerts.</p>`;
+    }
+}
 async function deleteAlert(alertId) {
     if (!confirm("Delete this alert?")) return;
     const token = getToken();
