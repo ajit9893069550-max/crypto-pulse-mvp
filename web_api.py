@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS 
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, JWTManager
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from supabase import create_client, Client
 import ccxt 
 from dotenv import load_dotenv
@@ -31,6 +33,14 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__, template_folder='templates')
 
+# --- Rate Limiter Setup ---
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+)
+
 # --- JWT Configuration ---
 app.config["JWT_SECRET_KEY"] = JWT_SECRET 
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
@@ -53,13 +63,14 @@ SUPPORTED_TOKENS = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE']
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
-    """Provides keys for the frontend. Frontend uses ANON_KEY."""
+    """Provides keys for the frontend. Frontend ALWAYS uses ANON_KEY."""
     return jsonify({
         "SUPABASE_URL": SUPABASE_URL, 
         "SUPABASE_KEY": os.environ.get("SUPABASE_KEY") 
     }), 200
 
 @app.route('/api/signup', methods=['POST'])
+@limiter.limit("5 per hour") # Prevent bot spam
 def signup():
     data = request.get_json()
     try:
@@ -69,6 +80,7 @@ def signup():
         return jsonify({"error": str(e)}), 400
 
 @app.route('/api/login', methods=['POST'])
+@limiter.limit("10 per hour") # Protect against brute force
 def login():
     data = request.get_json()
     try:
@@ -93,6 +105,7 @@ def get_signals():
 
 @app.route('/api/create-alert', methods=['POST'])
 @jwt_required()
+@limiter.limit("20 per minute")
 def create_alert():
     user_uuid = get_jwt_identity() 
     data = request.get_json()
@@ -100,7 +113,7 @@ def create_alert():
     if not conn: return jsonify({"error": "DB Fail"}), 500
     try:
         with conn.cursor() as cur:
-            # Explicitly cast %s to uuid to satisfy the PostgreSQL type checker
+            # Force UUID type casting to solve Error 42883
             cur.execute("""
                 INSERT INTO public.alerts (user_id, asset, timeframe, alert_type, status)
                 VALUES (%s::uuid, %s, %s, %s, 'ACTIVE')
@@ -118,9 +131,10 @@ def create_alert():
 def get_my_alerts():
     user_id = get_jwt_identity()
     try:
-        # Check profile exists. Service Role bypasses RLS here.
+        # Administrative sync: check if user profile exists
         profile = supabase.table('users').select('user_uuid').eq('user_uuid', user_id).execute()
         
+        # Service Role allows backend to create profiles bypassing RLS
         if not profile.data:
             supabase.table('users').insert({'user_uuid': user_id}).execute()
         
@@ -142,27 +156,7 @@ def delete_alert():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/market-summary', methods=['GET'])
-def get_market_summary():
-    try:
-        symbols = [f'{token}/USDT' for token in SUPPORTED_TOKENS]
-        tickers = EXCHANGE.fetch_tickers(symbols)
-        summary = []
-        for t in tickers.values():
-            summary.append({
-                'symbol': t['symbol'].replace('/', ''), 
-                'price': t['last'], 
-                'change_percent': t['percentage']
-            })
-        return jsonify(summary), 200
-    except Exception as e:
-        logger.error(f"Market Summary Error: {e}")
-        return jsonify({"error": str(e)}), 500
-
-# =================================================================
-#                   FRONT-END ROUTES (HTML)
-# =================================================================
-
+# --- FRONT-END ROUTES ---
 @app.route('/login.html')
 def login_page():
     return render_template('login.html')
@@ -178,17 +172,14 @@ def catch_all(path):
         return jsonify({"error": "API Route Not Found"}), 404
     return render_template('index.html')
 
-# =================================================================
-#                        ERROR HANDLERS
-# =================================================================
+# --- ERROR HANDLERS ---
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({"error": "Too Many Requests", "message": "Slow down! Try again in a minute."}), 429
 
 @jwt.unauthorized_loader
 def unauthorized_callback(c):
     return jsonify({"error": "No token provided"}), 401
-
-@jwt.expired_token_loader
-def expired_token_callback(jwt_header, jwt_payload):
-    return jsonify({"error": "Token expired"}), 401
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001)) 

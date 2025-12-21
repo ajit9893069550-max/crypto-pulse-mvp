@@ -3,23 +3,20 @@ const API_BASE_URL = window.location.origin.includes('localhost') || window.loca
     ? 'http://127.0.0.1:5001' 
     : window.location.origin;
 
-// Key used by the index.html fragment script to store OAuth tokens
 const TOKEN_STORAGE_KEY = 'supabase_token'; 
 const USER_ID_STORAGE_KEY = 'user_id'; 
-
 let supabaseClient = null;
 
 // ==========================================================
-// 1. CONFIGURATION & INITIALIZATION
+// 1. INITIALIZATION & AUTHENTICATION
 // ==========================================================
 
 async function fetchConfig() {
     try {
         const response = await fetch(`${API_BASE_URL}/api/config`);
-        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return await response.json();
     } catch (error) {
-        console.error("Failed to fetch configuration:", error);
+        console.error("Config fetch failed:", error);
         return { SUPABASE_URL: null, SUPABASE_KEY: null };
     }
 }
@@ -29,26 +26,17 @@ async function initializeSupabase() {
     if (config.SUPABASE_URL && config.SUPABASE_KEY && typeof supabase !== 'undefined') {
         try {
             supabaseClient = supabase.createClient(config.SUPABASE_URL, config.SUPABASE_KEY);
-            console.log("Supabase client initialized.");
             return true;
-        } catch (e) {
-            console.error("Failed to create Supabase client:", e);
-        }
+        } catch (e) { console.error("Supabase init failed:", e); }
     }
     return false;
 }
-
-// ==========================================================
-// 2. AUTHENTICATION HELPERS
-// ==========================================================
 
 function getToken() { return localStorage.getItem(TOKEN_STORAGE_KEY); }
 function getUserId() { return localStorage.getItem(USER_ID_STORAGE_KEY); }
 
 function logout() {
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
-    localStorage.removeItem(USER_ID_STORAGE_KEY); 
-    localStorage.removeItem('supabase_refresh_token');
+    localStorage.clear();
     window.location.href = 'login.html';
 }
 
@@ -66,23 +54,21 @@ async function checkSupabaseSession() {
     const initialized = await initializeSupabase();
     if (!initialized) return null;
 
-    // 1. Check for standard session
+    // 1. Check for standard active session
     const { data: { session } } = await supabaseClient.auth.getSession();
-    
     if (session) {
         localStorage.setItem(TOKEN_STORAGE_KEY, session.access_token);
         localStorage.setItem(USER_ID_STORAGE_KEY, session.user.id);
         return session;
     } 
 
-    // 2. IMPORTANT: Handle Google OAuth token captured from fragment
+    // 2. Handle token from Google OAuth fragment
     const token = getToken();
     if (token) {
-        const { data, error } = await supabaseClient.auth.setSession({
+        const { data } = await supabaseClient.auth.setSession({
             access_token: token,
             refresh_token: localStorage.getItem('supabase_refresh_token') || ''
         });
-
         if (data.user) {
             localStorage.setItem(USER_ID_STORAGE_KEY, data.user.id);
             return { access_token: token, user: data.user };
@@ -92,7 +78,7 @@ async function checkSupabaseSession() {
 }
 
 // ==========================================================
-// 3. MARKET SIGNALS (Display)
+// 2. DATA DISPLAY (SIGNALS & ALERTS)
 // ==========================================================
 
 async function fetchMarketSignals(type = 'ALL') {
@@ -105,225 +91,123 @@ async function fetchMarketSignals(type = 'ALL') {
         const scans = await response.json();
 
         if (!scans || scans.length === 0) {
-            scanList.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px; color:var(--text-dim);">No ${type} signals available.</td></tr>`;
+            scanList.innerHTML = `<tr><td colspan="4" style="text-align:center; padding:20px;">No signals available.</td></tr>`;
             return;
         }
 
         scanList.innerHTML = scans.map(s => {
-            const bullTerms = ['BULL', 'OVERSOLD', 'GOLDEN', 'PULLBACK', 'UPPER_BREAKOUT', 'NEW_HIGH', 'SURGE'];
-            const isBullish = bullTerms.some(term => s.signal_type.includes(term));
-            const signalClass = isBullish ? 'text-success' : 'text-danger';
+            const signalTime = new Date(s.created_at || s.detected_at);
+            const now = new Date();
+            const diffInMinutes = Math.abs(now - signalTime) / (1000 * 60);
             
-            const dateStr = s.created_at || s.detected_at;
-            const signalTime = new Date(dateStr);
-            const isValid = !isNaN(signalTime.getTime());
-            
-            // --- UPDATED DYNAMIC "NEW" BADGE LOGIC ---
+            // Logic: NEW badge based on timeframe
             let isNew = false;
-            if (isValid) {
-                const now = new Date();
-                const diffInMinutes = Math.abs(now - signalTime) / (1000 * 60);
-                
-                // Logic: Badge stays visible until the next scan of its timeframe
-                if (s.timeframe === '15m' && diffInMinutes < 15) isNew = true;
-                else if (s.timeframe === '1h' && diffInMinutes < 60) isNew = true;
-                else if (s.timeframe === '4h' && diffInMinutes < 240) isNew = true;
-            }
+            if (s.timeframe === '15m' && diffInMinutes < 15) isNew = true;
+            else if (s.timeframe === '1h' && diffInMinutes < 60) isNew = true;
+            else if (s.timeframe === '4h' && diffInMinutes < 240) isNew = true;
             
             const newBadge = isNew ? '<span class="new-tag">NEW</span>' : '';
-            const displayDateTime = isValid ? signalTime.toLocaleString('en-IN', { 
-                day: '2-digit', month: '2-digit', year: '2-digit',
-                hour: '2-digit', minute: '2-digit', hour12: true 
-            }) : "Pending...";
-
             return `
                 <tr>
                     <td class="asset-cell">${s.asset.replace('/USDT', '')} ${newBadge}</td>
                     <td><span class="tf-badge tf-${s.timeframe}">${s.timeframe}</span></td>
-                    <td class="${signalClass}">${s.signal_type.replace(/_/g, ' ')}</td>
-                    <td style="color:var(--text-dim); font-size: 0.85em; white-space: nowrap;">${displayDateTime}</td>
-                </tr>
-            `;
+                    <td class="${s.signal_type.includes('BULL') || s.signal_type.includes('OVERSOLD') ? 'text-success' : 'text-danger'}">
+                        ${s.signal_type.replace(/_/g, ' ')}
+                    </td>
+                    <td style="color:var(--text-dim); font-size: 0.85em;">${signalTime.toLocaleString('en-IN')}</td>
+                </tr>`;
         }).join('');
-    } catch (err) { console.error("Signal Fetch Error:", err); }
+    } catch (err) { console.error("Signals Error:", err); }
 }
-
-// ==========================================================
-// 4. ALERT MANAGEMENT
-// ==========================================================
 
 async function fetchAndDisplayAlerts() {
     const listContainer = document.getElementById('myAlertsList');
     const telegramSection = document.getElementById('telegramLinkSection');
     const token = getToken();
     const userId = getUserId();
-    
     if (!listContainer || !token) return;
 
     try {
-        // --- Part A: Telegram Status Logic ---
+        // Sync Telegram status using Service Role permissions from Backend
         if (supabaseClient && userId) {
-            // Check if this specific user has a Telegram ID in the public.users table
-            const { data: profile, error: profError } = await supabaseClient
-                .from('users')
-                .select('telegram_chat_id')
-                .eq('user_uuid', userId)
-                .maybeSingle();
-
-            if (profile && profile.telegram_chat_id) {
-                telegramSection.innerHTML = `
-                    <div style="background: rgba(0, 255, 136, 0.1); padding: 12px; border-radius: 8px; border: 1px solid var(--accent-green);">
-                        <h4 style="color: var(--accent-green); margin: 0; font-size: 13px; display: flex; align-items: center;">
-                             <img src="https://upload.wikimedia.org/wikipedia/commons/8/82/Telegram_logo.svg" width="16" style="margin-right: 8px;">
-                             Telegram Linked
-                        </h4>
-                        <p style="font-size: 11px; color: var(--text-dim); margin-top: 4px;">Receiving signals via Bot.</p>
-                    </div>`;
+            const { data: profile } = await supabaseClient.from('users').select('telegram_chat_id').eq('user_uuid', userId).maybeSingle();
+            if (profile?.telegram_chat_id) {
+                telegramSection.innerHTML = `<div class="linked-badge">✅ Telegram Linked</div>`;
             }
         }
 
-        // --- Part B: Fetch Alerts Logic ---
-        // We use the Flask API which uses the JWT to filter by RLS
         const response = await fetch(`${API_BASE_URL}/api/my-alerts`, {
-            headers: { 
-                'Authorization': `Bearer ${token}`,
-                'Cache-Control': 'no-cache' 
-            }
+            headers: { 'Authorization': `Bearer ${token}` }
         });
-        
         const alerts = await response.json();
 
-        if (!alerts || alerts.length === 0 || alerts.error) {
-            listContainer.innerHTML = `<p style="color: var(--text-dim); font-size: 13px; text-align:center; padding: 20px;">No active alerts found.</p>`;
+        if (!alerts || alerts.length === 0) {
+            listContainer.innerHTML = `<p style="text-align:center; color:var(--text-dim);">No active alerts.</p>`;
             return;
         }
 
-        // Render alerts if they exist
         listContainer.innerHTML = alerts.map(a => `
-            <div class="card" style="margin-bottom: 10px; padding: 12px; border: 1px solid var(--border-color); background: var(--bg-card);">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
+            <div class="card alert-item">
+                <div style="display: flex; justify-content: space-between; align-items:center;">
                     <div>
-                        <strong style="font-size: 14px; color: var(--text-main);">${a.asset}</strong> 
-                        <span class="tf-badge tf-${a.timeframe}" style="font-size: 10px;">${a.timeframe}</span><br>
-                        <small style="color: var(--text-dim);">${a.alert_type.replace(/_/g, ' ')}</small>
+                        <strong>${a.asset}</strong> <span class="tf-badge tf-${a.timeframe}">${a.timeframe}</span><br>
+                        <small>${a.alert_type.replace(/_/g, ' ')}</small>
                     </div>
-                    <button onclick="deleteAlert(${a.id})" style="background:none; border:none; color:var(--danger); cursor:pointer; font-size: 12px; padding: 5px;">Delete</button>
+                    <button onclick="deleteAlert(${a.id})" class="text-danger">Delete</button>
                 </div>
-            </div>
-        `).join('');
-
-    } catch (err) { 
-        console.error("Fetch Alerts Error:", err);
-        listContainer.innerHTML = `<p style="color: var(--danger); font-size: 12px;">Error loading alerts.</p>`;
-    }
-}
-async function deleteAlert(alertId) {
-    if (!confirm("Delete this alert?")) return;
-    const token = getToken();
-    try {
-        const response = await fetch(`${API_BASE_URL}/api/delete-alert`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({ 'alert_id': alertId })
-        });
-        if (response.ok) fetchAndDisplayAlerts();
-    } catch (err) { console.error("Delete Error:", err); }
+            </div>`).join('');
+    } catch (err) { console.error("Alerts Fetch Error:", err); }
 }
 
 // ==========================================================
-// 5. EVENTS & INITIALIZATION
+// 3. EVENT HANDLERS
 // ==========================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Theme Initialization
-    const htmlTag = document.documentElement;
-    const savedTheme = localStorage.getItem('theme') || 'dark';
-    htmlTag.setAttribute('data-theme', savedTheme);
-    const themeBtn = document.getElementById('themeToggle');
-    if (themeBtn) themeBtn.innerText = savedTheme === 'dark' ? '🌓' : '☀️';
-
-    // 2. Auth & Dashboard Synchronization
     await checkSupabaseSession(); 
     updateAuthStatusUI();
-    
-    // Initial data fetches
     fetchMarketSignals('ALL');
     fetchAndDisplayAlerts();
 
-    // 3. Telegram Link Setup
+    // Set Telegram start deep link
     const telegramBtn = document.getElementById('connectTelegramBtn');
-    const userId = getUserId();
-    if (telegramBtn && userId) {
-        const botUsername = 'Crypto1804_bot'; 
-        telegramBtn.href = `https://t.me/${botUsername}?start=${userId}`;
+    if (telegramBtn && getUserId()) {
+        telegramBtn.href = `https://t.me/Crypto1804_bot?start=${getUserId()}`;
     }
 
-    // 4. Create Alert Form Handler
     const createForm = document.getElementById('createAlertForm');
-    const statusDiv = document.getElementById('createAlertStatus');
-
     if (createForm) {
         createForm.onsubmit = async (e) => {
             e.preventDefault();
-            const token = getToken();
-            if (!token) return alert("Please login first");
-
+            const statusDiv = document.getElementById('createAlertStatus');
             statusDiv.innerText = "⏳ Activating...";
-
+            
             const payload = {
                 asset: document.getElementById('alertAsset').value,
                 timeframe: document.getElementById('alertTimeframe').value,
                 signal_type: document.getElementById('alertType').value
             };
 
-            try {
-                const response = await fetch(`${API_BASE_URL}/api/create-alert`, {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json', 
-                        'Authorization': `Bearer ${token}` 
-                    },
-                    body: JSON.stringify(payload)
-                });
+            const response = await fetch(`${API_BASE_URL}/api/create-alert`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getToken()}` },
+                body: JSON.stringify(payload)
+            });
 
-                const result = await response.json();
-
-                if (response.ok) {
-                    statusDiv.innerHTML = "<span style='color: var(--accent-green)'>✅ Alert Active!</span>";
-                    createForm.reset();
-                    fetchAndDisplayAlerts();
-                    setTimeout(() => statusDiv.innerText = "", 3000);
-                } else {
-                    statusDiv.innerHTML = `<span style='color: var(--danger)'>❌ ${result.error || "Failed"}</span>`;
-                }
-            } catch (err) {
-                statusDiv.innerText = "❌ Network Error";
+            const result = await response.json();
+            if (response.status === 429) {
+                statusDiv.innerHTML = `<span class="text-danger">${result.message}</span>`;
+            } else if (response.ok) {
+                statusDiv.innerHTML = `<span class="text-success">✅ Alert Active!</span>`;
+                fetchAndDisplayAlerts();
+                createForm.reset();
             }
         };
     }
 
-    // 5. Sidebar & Mobile UI
-    const menuToggle = document.getElementById('menuToggle');
-    const sidebar = document.querySelector('.sidebar');
-    if (menuToggle) {
-        menuToggle.addEventListener('click', () => sidebar.classList.toggle('active'));
-    }
-
-    document.querySelectorAll('.nav-item').forEach(item => {
-        item.addEventListener('click', function() {
-            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-            this.classList.add('active');
-            const title = document.getElementById('currentCategoryTitle');
-            if (title) title.innerText = this.innerText;
-            
-            fetchMarketSignals(this.getAttribute('data-type'));
-            if (window.innerWidth <= 1024) sidebar.classList.remove('active');
-        });
-    });
-
-    // 6. Auto-Refresh Logic (60s)
+    // Auto-refresh signals every minute
     setInterval(() => {
-        const activeItem = document.querySelector('.nav-item.active');
-        fetchMarketSignals(activeItem ? activeItem.getAttribute('data-type') : 'ALL');
+        const active = document.querySelector('.nav-item.active');
+        fetchMarketSignals(active ? active.getAttribute('data-type') : 'ALL');
     }, 60000);
 });
