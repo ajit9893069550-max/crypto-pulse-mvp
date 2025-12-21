@@ -9,6 +9,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
     
     <script>
+        /**
+         * SECURITY & SESSION HANDLER
+         * Capture OAuth tokens from URL fragment and immediately clean the URL
+         */
         (function() {
             const hash = window.location.hash;
             if (hash && hash.includes("access_token=")) {
@@ -17,14 +21,15 @@
                 const refreshToken = params.get("refresh_token");
 
                 if (accessToken) {
-                    // Save to localStorage for frontend API calls
+                    // 1. Save to localStorage for frontend API calls
                     localStorage.setItem("supabase_token", accessToken);
                     if (refreshToken) localStorage.setItem("supabase_refresh_token", refreshToken);
                     
-                    console.log("OAuth Login Successful. Token saved.");
+                    console.log("Security: OAuth token captured and stored.");
                     
-                    // Clean the URL hash without reloading to prevent "Unexpected token <" errors
-                    window.history.replaceState(null, null, "/");
+                    // 2. IMMEDIATELY clean the URL hash to prevent sensitive data exposure
+                    // This replaces 'yoursite.com/#access_token=...' with just 'yoursite.com/'
+                    window.history.replaceState(null, null, window.location.pathname);
                 }
             }
         })();

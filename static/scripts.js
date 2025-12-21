@@ -3,6 +3,7 @@ const API_BASE_URL = window.location.origin.includes('localhost') || window.loca
     ? 'http://127.0.0.1:5001' 
     : window.location.origin;
 
+// Key used by the index.html fragment script to store OAuth tokens
 const TOKEN_STORAGE_KEY = 'supabase_token'; 
 const USER_ID_STORAGE_KEY = 'user_id'; 
 
@@ -74,7 +75,7 @@ async function checkSupabaseSession() {
         return session;
     } 
 
-    // 2. Handle Google OAuth token from fragment script
+    // 2. IMPORTANT: Handle Google OAuth token captured from fragment
     const token = getToken();
     if (token) {
         const { data, error } = await supabaseClient.auth.setSession({
@@ -123,14 +124,10 @@ async function fetchMarketSignals(type = 'ALL') {
                 const now = new Date();
                 const diffInMinutes = Math.abs(now - signalTime) / (1000 * 60);
                 
-                // Badge stays visible based on timeframe interval
-                if (s.timeframe === '15m' && diffInMinutes < 15) {
-                    isNew = true;
-                } else if (s.timeframe === '1h' && diffInMinutes < 60) {
-                    isNew = true;
-                } else if (s.timeframe === '4h' && diffInMinutes < 240) {
-                    isNew = true;
-                }
+                // Logic: Badge stays visible until the next scan of its timeframe
+                if (s.timeframe === '15m' && diffInMinutes < 15) isNew = true;
+                else if (s.timeframe === '1h' && diffInMinutes < 60) isNew = true;
+                else if (s.timeframe === '4h' && diffInMinutes < 240) isNew = true;
             }
             
             const newBadge = isNew ? '<span class="new-tag">NEW</span>' : '';
@@ -164,6 +161,7 @@ async function fetchAndDisplayAlerts() {
     if (!listContainer || !token) return;
 
     try {
+        // Update Telegram Status via Supabase query
         if (supabaseClient && userId) {
             const { data: profile } = await supabaseClient.from('users').select('telegram_chat_id').eq('user_uuid', userId).maybeSingle();
             if (profile && profile.telegram_chat_id) {
@@ -175,6 +173,7 @@ async function fetchAndDisplayAlerts() {
             }
         }
 
+        // Fetch user-specific alerts from API
         const response = await fetch(`${API_BASE_URL}/api/my-alerts`, {
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -218,18 +217,22 @@ async function deleteAlert(alertId) {
 // ==========================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // 1. Theme Initialization
     const htmlTag = document.documentElement;
     const savedTheme = localStorage.getItem('theme') || 'dark';
     htmlTag.setAttribute('data-theme', savedTheme);
     const themeBtn = document.getElementById('themeToggle');
     if (themeBtn) themeBtn.innerText = savedTheme === 'dark' ? '🌓' : '☀️';
 
+    // 2. Auth & Dashboard Synchronization
     await checkSupabaseSession(); 
     updateAuthStatusUI();
     
+    // Initial data fetches
     fetchMarketSignals('ALL');
     fetchAndDisplayAlerts();
 
+    // 3. Telegram Link Setup
     const telegramBtn = document.getElementById('connectTelegramBtn');
     const userId = getUserId();
     if (telegramBtn && userId) {
@@ -237,13 +240,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         telegramBtn.href = `https://t.me/${botUsername}?start=${userId}`;
     }
 
+    // 4. Create Alert Form Handler
     const createForm = document.getElementById('createAlertForm');
     const statusDiv = document.getElementById('createAlertStatus');
 
     if (createForm) {
         createForm.onsubmit = async (e) => {
             e.preventDefault();
-            const token = localStorage.getItem('supabase_token');
+            const token = getToken();
             if (!token) return alert("Please login first");
 
             statusDiv.innerText = "⏳ Activating...";
@@ -280,6 +284,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
     }
 
+    // 5. Sidebar & Mobile UI
     const menuToggle = document.getElementById('menuToggle');
     const sidebar = document.querySelector('.sidebar');
     if (menuToggle) {
@@ -298,16 +303,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    if (themeBtn) {
-        themeBtn.addEventListener('click', () => {
-            const current = htmlTag.getAttribute('data-theme');
-            const next = current === 'dark' ? 'light' : 'dark';
-            htmlTag.setAttribute('data-theme', next);
-            localStorage.setItem('theme', next);
-            themeBtn.innerText = next === 'dark' ? '🌓' : '☀️';
-        });
-    }
-
+    // 6. Auto-Refresh Logic (60s)
     setInterval(() => {
         const activeItem = document.querySelector('.nav-item.active');
         fetchMarketSignals(activeItem ? activeItem.getAttribute('data-type') : 'ALL');
