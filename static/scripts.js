@@ -1,3 +1,8 @@
+/**
+ * CryptoPulse Scanner - Dashboard Logic
+ * Optimized for: JWT Auth, Google OAuth, Mobile Responsiveness, and Real-time Updates
+ */
+
 // --- GLOBAL CONFIGURATION ---
 const API_BASE_URL = window.location.origin.includes('localhost') || window.location.origin.includes('127.0.0.1') 
     ? 'http://127.0.0.1:5001' 
@@ -132,7 +137,7 @@ async function fetchAndDisplayAlerts() {
         if (supabaseClient && userId) {
             const { data: profile } = await supabaseClient.from('users').select('telegram_chat_id').eq('user_uuid', userId).maybeSingle();
             if (profile?.telegram_chat_id) {
-                telegramSection.innerHTML = `<div class="linked-badge">✅ Telegram Linked</div>`;
+                telegramSection.innerHTML = `<div class="linked-badge" style="background: rgba(0, 255, 136, 0.1); padding: 12px; border-radius: 8px; border: 1px solid var(--accent-green); color: var(--accent-green); font-size: 13px; font-weight: bold;">✅ Telegram Linked</div>`;
             }
         }
 
@@ -141,40 +146,73 @@ async function fetchAndDisplayAlerts() {
         });
         const alerts = await response.json();
 
-        if (!alerts || alerts.length === 0) {
-            listContainer.innerHTML = `<p style="text-align:center; color:var(--text-dim);">No active alerts.</p>`;
+        if (!alerts || alerts.length === 0 || alerts.error) {
+            listContainer.innerHTML = `<p style="text-align:center; color:var(--text-dim);">No active alerts found.</p>`;
             return;
         }
 
         listContainer.innerHTML = alerts.map(a => `
-            <div class="card alert-item">
+            <div class="card alert-item" style="margin-bottom: 10px; padding: 12px;">
                 <div style="display: flex; justify-content: space-between; align-items:center;">
                     <div>
                         <strong>${a.asset}</strong> <span class="tf-badge tf-${a.timeframe}">${a.timeframe}</span><br>
-                        <small>${a.alert_type.replace(/_/g, ' ')}</small>
+                        <small style="color: var(--text-dim);">${a.alert_type.replace(/_/g, ' ')}</small>
                     </div>
-                    <button onclick="deleteAlert(${a.id})" class="text-danger">Delete</button>
+                    <button onclick="deleteAlert(${a.id})" class="text-danger" style="background:none; border:none; cursor:pointer;">Delete</button>
                 </div>
             </div>`).join('');
     } catch (err) { console.error("Alerts Fetch Error:", err); }
 }
 
+async function deleteAlert(alertId) {
+    if (!confirm("Delete this alert?")) return;
+    const token = getToken();
+    try {
+        const response = await fetch(`${API_BASE_URL}/api/delete-alert`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ 'alert_id': alertId })
+        });
+        if (response.ok) fetchAndDisplayAlerts();
+    } catch (err) { console.error("Delete Error:", err); }
+}
+
 // ==========================================================
-// 3. EVENT HANDLERS
+// 3. EVENT HANDLERS & UI LOGIC
 // ==========================================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // Initialization
     await checkSupabaseSession(); 
     updateAuthStatusUI();
     fetchMarketSignals('ALL');
     fetchAndDisplayAlerts();
 
-    // Set Telegram start deep link
+    // Fix for the mobile hamburger menu (3 dots)
+    const menuToggle = document.getElementById('menuToggle');
+    const sidebar = document.querySelector('.sidebar');
+
+    if (menuToggle && sidebar) {
+        menuToggle.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevents click from bubbling to background layers
+            sidebar.classList.toggle('active');
+        });
+
+        // Close sidebar when clicking outside of it
+        document.addEventListener('click', (e) => {
+            if (sidebar.classList.contains('active') && !sidebar.contains(e.target) && e.target !== menuToggle) {
+                sidebar.classList.remove('active');
+            }
+        });
+    }
+
+    // Set Telegram deep link
     const telegramBtn = document.getElementById('connectTelegramBtn');
     if (telegramBtn && getUserId()) {
         telegramBtn.href = `https://t.me/Crypto1804_bot?start=${getUserId()}`;
     }
 
+    // Create Alert Form Logic
     const createForm = document.getElementById('createAlertForm');
     if (createForm) {
         createForm.onsubmit = async (e) => {
@@ -201,11 +239,42 @@ document.addEventListener('DOMContentLoaded', async () => {
                 statusDiv.innerHTML = `<span class="text-success">✅ Alert Active!</span>`;
                 fetchAndDisplayAlerts();
                 createForm.reset();
+                setTimeout(() => { statusDiv.innerText = ""; }, 3000);
             }
         };
     }
 
-    // Auto-refresh signals every minute
+    // Sidebar Category Filter Logic
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', function() {
+            document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+            this.classList.add('active');
+            const title = document.getElementById('currentCategoryTitle');
+            if (title) title.innerText = this.innerText;
+            
+            fetchMarketSignals(this.getAttribute('data-type'));
+            
+            // Auto-close sidebar on mobile after selecting a category
+            if (window.innerWidth <= 1024 && sidebar.classList.contains('active')) {
+                sidebar.classList.remove('active');
+            }
+        });
+    });
+
+    // Theme Toggle Support
+    const themeBtn = document.getElementById('themeToggle');
+    if (themeBtn) {
+        themeBtn.addEventListener('click', () => {
+            const html = document.documentElement;
+            const current = html.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            themeBtn.innerText = next === 'dark' ? '🌓' : '☀️';
+        });
+    }
+
+    // Auto-refresh signals every 60 seconds
     setInterval(() => {
         const active = document.querySelector('.nav-item.active');
         fetchMarketSignals(active ? active.getAttribute('data-type') : 'ALL');
