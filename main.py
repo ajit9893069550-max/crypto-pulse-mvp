@@ -17,7 +17,7 @@ load_dotenv()
 # Configuration
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'BNB/USDT', 'DOGE/USDT'] 
-TIMEFRAMES = ['15m', '1h', '4h']
+TIMEFRAMES = ['1h', '4h']
 
 # Logging Setup
 logging.basicConfig(
