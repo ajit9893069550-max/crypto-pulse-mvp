@@ -119,13 +119,32 @@ body {
 /* Header Config */
 .section-header {
     flex-shrink: 0;
-    /* Removed large padding/background to fit better */
+    margin-bottom: 5px;
 }
-.section-header h2 { margin: 0; font-size: 1.5rem; }
 
-/* HIDE DESCRIPTION (As requested) */
-#categoryDescription { display: none !important; }
+/* This container holds the H2 and P tags */
+.section-header > div:first-child {
+    display: flex;             
+    align-items: baseline;     
+    flex-wrap: wrap;           
+    gap: 10px;                  /* Increased gap slightly */
+}
 
+.section-header h2 { 
+    margin: 0; 
+    font-size: 1.5rem; 
+    white-space: nowrap;       
+}
+
+#categoryDescription { 
+    display: block !important; 
+    margin: 0;
+    color: var(--text-main);   /* CHANGED: Now White (was gray/dim) */
+    font-size: 15px;           /* CHANGED: Increased size (was 13px) */
+    font-weight: 500;          /* CHANGED: Slightly bolder */
+    line-height: 1.5;
+    opacity: 0.9;              /* Slight transparency for elegance */
+}
 /* Table Container (Scrollable) */
 .table-container {
     background-color: var(--bg-card);
@@ -216,4 +235,28 @@ select {
     .brand { font-size: 0.95rem; }
     .table-container { overflow-x: auto; }
     table { min-width: 500px; }
+}
+/* --- NEW CHART BUTTON STYLE --- */
+.btn-view-chart {
+    background: rgba(59, 130, 246, 0.15); /* Low opacity Blue */
+    color: var(--accent-blue);
+    border: 1px solid var(--accent-blue);
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-view-chart:hover {
+    background: var(--accent-blue);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 5px rgba(59, 130, 246, 0.4);
+}
+
+/* Ensure row hover still looks good */
+.signal-row:hover .btn-view-chart {
+    border-color: white; /* Highlights border on row hover */
 }

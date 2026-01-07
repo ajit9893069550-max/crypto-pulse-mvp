@@ -1,23 +1,61 @@
 /**
  * UI.JS - Handles Dashboard, Charts, and Audio
- * (Cleaned Version: Descriptions removed for better layout stability)
+ * (Final Version: Includes Inline Descriptions & Smart Charts)
  */
+
+// --- 1. SIGNAL DEFINITIONS (The Text for the Header) ---
+const SIGNAL_DEFINITIONS = {
+    'ALL': "Monitoring all assets for high-probability setups in real-time.",
+    
+    // Sniper Setups
+    'SNIPER_BUY_REVERSAL': "Price is deeply oversold (RSI < 35) at Support with Volume. Potential Reversal.",
+    'SNIPER_SELL_REJECTION': "Price is overextended (RSI > 65) at Resistance. Potential Rejection.",
+    'MOMENTUM_BREAKOUT': "MACD Bullish Cross + Volume Surge. Trend is accelerating.",
+    
+    // Trend
+    'GOLDEN_CROSS': "Bullish pattern where the 50 SMA crosses above the 200 SMA. Long-term uptrend signal.",
+    'DEATH_CROSS': "Bearish pattern where the 50 SMA crosses below the 200 SMA. Warning of a downtrend.",
+    'BB_SQUEEZE': "Volatility is at historic lows. Expect a massive breakout move soon.",
+    'VOLUME_SURGE': "Unusual buying/selling activity detected. Institutional interest likely.",
+    
+    // Oscillators
+    'RSI_OVERSOLD': "RSI is below 30. Asset is undervalued and may bounce.",
+    'RSI_OVERBOUGHT': "RSI is above 70. Asset is overvalued and may pull back.",
+    'MACD_BULL_CROSS': "Momentum shifting to bullish. Good entry signal in uptrends."
+};
+
+// --- CONFIG: Chart Indicators Map ---
+const STUDY_MAP = {
+    'RSI_OVERSOLD':        ['RSI@tv-basicstudies'],
+    'RSI_OVERBOUGHT':      ['RSI@tv-basicstudies'],
+    'MACD_BULL_CROSS':     ['MACD@tv-basicstudies'],
+    'MACD_BEAR_CROSS':     ['MACD@tv-basicstudies'],
+    'BB_SQUEEZE':          ['BB@tv-basicstudies'],
+    'BB_UPPER_BREAKOUT':   ['BB@tv-basicstudies'],
+    'BB_LOWER_TOUCH':      ['BB@tv-basicstudies'],
+    'GOLDEN_CROSS':        ['MASimple@tv-basicstudies', 'MASimple@tv-basicstudies'], 
+    'DEATH_CROSS':         ['MASimple@tv-basicstudies', 'MASimple@tv-basicstudies'],
+    'EMA_20_PULLBACK':     ['MAExp@tv-basicstudies'],
+    'SNIPER_BUY_REVERSAL': ['RSI@tv-basicstudies', 'BB@tv-basicstudies'],
+    'SNIPER_SELL_REJECTION':['RSI@tv-basicstudies', 'BB@tv-basicstudies'],
+    'MOMENTUM_BREAKOUT':   ['MACD@tv-basicstudies']
+};
+
+const TF_MAP = {
+    '15m': '15',
+    '1h':  '60',
+    '4h':  '240',
+    '1d':  'D'
+};
 
 // --- HELPERS ---
 function timeAgo(dateString) {
     const date = new Date(dateString);
     const seconds = Math.floor((new Date() - date) / 1000);
-    let interval = seconds / 31536000;
-    if (interval > 1) return Math.floor(interval) + "y ago";
-    interval = seconds / 2592000;
-    if (interval > 1) return Math.floor(interval) + "mo ago";
-    interval = seconds / 86400;
-    if (interval > 1) return Math.floor(interval) + "d ago";
-    interval = seconds / 3600;
-    if (interval > 1) return Math.floor(interval) + "h ago";
-    interval = seconds / 60;
-    if (interval > 1) return Math.floor(interval) + "m ago";
-    return Math.floor(seconds) + "s ago";
+    if (seconds < 60) return Math.floor(seconds) + "s ago";
+    if (seconds < 3600) return Math.floor(seconds / 60) + "m ago";
+    if (seconds < 86400) return Math.floor(seconds / 3600) + "h ago";
+    return Math.floor(seconds / 86400) + "d ago";
 }
 
 function cleanSignalName(name) {
@@ -48,17 +86,16 @@ async function refreshSignals(type) {
     const list = document.getElementById('marketScansList');
     if (!list) return;
 
-    // 1. Loading State
-    list.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px;"><div class="loader"></div> Scanning Market...</td></tr>';
+    list.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px;"><div class="loader"></div> Scanning Market...</td></tr>';
 
     const data = await API.getSignals(type);
 
     if (!data.length) {
-        list.innerHTML = '<tr><td colspan="4" style="text-align:center; padding: 20px;">No active signals found for this category.</td></tr>';
+        list.innerHTML = '<tr><td colspan="5" style="text-align:center; padding: 20px;">No active signals found for this category.</td></tr>';
         return;
     }
 
-    // 2. Audio Alert Logic (Play if latest signal is < 1 minute old)
+    // Audio Alert
     const latestTime = new Date(data[0].detected_at);
     if ((new Date() - latestTime) < 60000) {
         const audio = document.getElementById('alertSound');
@@ -72,14 +109,17 @@ async function refreshSignals(type) {
         const assetName = s.asset.replace('/USDT', '');
 
         return `
-            <tr class="signal-row" onclick="openChart('${assetName}')" title="Click to open Chart">
-                <td style="font-weight:bold; width: 35%;">
+            <tr class="signal-row" onclick="openChart('${assetName}', '${s.timeframe}', '${s.signal_type}')">
+                <td style="font-weight:bold; width: 25%;">
                     ${assetName} 
-                    <button class="btn-copy" onclick="event.stopPropagation(); copyToClipboard('${cleanName} on ${assetName} detected via CryptoPulse')" title="Copy Signal">📋</button>
+                    <button class="btn-copy" onclick="event.stopPropagation(); copyToClipboard('${cleanName} on ${assetName}')" title="Copy Signal">📋</button>
                 </td>
-                <td style="width: 15%;"><span class="tf-badge">${s.timeframe}</span></td>
+                <td style="width: 10%;"><span class="tf-badge">${s.timeframe}</span></td>
                 <td class="${isBull ? 'text-success' : 'text-danger'}" style="width: 35%;">${cleanName}</td>
                 <td style="color:var(--text-dim); font-size:12px; width: 15%;">${relativeTime}</td>
+                <td style="width: 15%; text-align: center;">
+                    <button class="btn-view-chart">📊 View</button>
+                </td>
             </tr>`;
     }).join('');
 }
@@ -119,35 +159,35 @@ async function updateTelegramUI() {
     }
 }
 
-// --- CHART MODAL FUNCTIONS ---
-function openChart(symbol) {
+// --- CHART MODAL ---
+function openChart(symbol, timeframe = '1h', signalType = 'NONE') {
     const modal = document.getElementById('chartModal');
     const title = document.getElementById('modalTitle');
     
     if(modal && title) {
         modal.style.display = 'flex';
-        title.innerText = `${symbol}/USDT Analysis`;
+        const cleanName = signalType !== 'NONE' ? cleanSignalName(signalType) : 'Analysis';
+        title.innerText = `${symbol}/USDT - ${timeframe} - ${cleanName}`;
         
+        const tvInterval = TF_MAP[timeframe] || '60';
+        const indicators = STUDY_MAP[signalType] || [];
+
         if (window.TradingView) {
             new TradingView.widget({
-                "width": "100%",
-                "height": 500,
+                "width": "100%", "height": 500,
                 "symbol": "BINANCE:" + symbol + "USDT",
-                "interval": "60",
+                "interval": tvInterval,
                 "timezone": "Etc/UTC",
                 "theme": localStorage.getItem('theme') === 'light' ? 'light' : 'dark',
-                "style": "1",
-                "locale": "en",
-                "toolbar_bg": "#f1f3f6",
-                "enable_publishing": false,
-                "hide_side_toolbar": false,
-                "allow_symbol_change": true,
+                "style": "1", "locale": "en",
+                "toolbar_bg": "#f1f3f6", "enable_publishing": false,
+                "hide_side_toolbar": false, "allow_symbol_change": true,
+                "studies": indicators,
                 "container_id": "tv_chart_container"
             });
         }
     }
 }
-
 function closeModal() {
     document.getElementById('chartModal').style.display = 'none';
     document.getElementById('tv_chart_container').innerHTML = '';
@@ -161,13 +201,13 @@ async function handleDeleteAlert(id) {
     }
 }
 
-// --- INITIALIZATION ---
 document.addEventListener('DOMContentLoaded', async () => {
     await initAuth();
     refreshSignals('ALL');
     refreshAlerts();
     updateTelegramUI();
 
+    // Alert Logic
     const form = document.getElementById('createAlertForm');
     if (form) {
         form.onsubmit = async (e) => {
@@ -207,19 +247,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // --- SIDEBAR FILTERING (Cleaned Up) ---
+    // --- UPDATED: Sidebar Click + Inline Description ---
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', function () {
-            // 1. Highlight Active Tab
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
             this.classList.add('active');
             
-            // 2. Update Title
             const categoryType = this.getAttribute('data-type');
+            
+            // 1. Update Title
             const title = document.getElementById('currentCategoryTitle');
             if (title) title.innerText = this.innerText;
 
-            // 3. Fetch Data (Removed Description Logic)
+            // 2. Update Description Inline
+            const desc = document.getElementById('categoryDescription');
+            if (desc) {
+                const text = SIGNAL_DEFINITIONS[categoryType] || "";
+                // If there is text, add " - " before it, otherwise blank
+                desc.innerText = text ? `- ${text}` : "";
+            }
+
             refreshSignals(categoryType);
             
             if (window.innerWidth <= 1024 && sidebar.classList.contains('active')) {
@@ -228,11 +275,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    // Close Modal on Background Click
     window.onclick = function(event) {
-        const modal = document.getElementById('chartModal');
-        if (event.target == modal) {
-            closeModal();
-        }
+        if (event.target == document.getElementById('chartModal')) closeModal();
     }
 });
