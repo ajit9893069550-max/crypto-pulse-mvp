@@ -1,16 +1,14 @@
 import asyncio
 import logging
 import os
-import time
-import requests
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
-# Logic imports
-from new_alert_engine import analyze_asset, close_exchange
+# Logic imports (Added check_alerts here)
+from new_alert_engine import analyze_asset, check_alerts, close_exchange
 
 load_dotenv()
 
@@ -27,6 +25,7 @@ if not all([SUPABASE_URL, SUPABASE_KEY, TELEGRAM_BOT_TOKEN]):
     exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Symbols to scan
 SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'BNB/USDT', 'DOGE/USDT'] 
 TIMEFRAMES = ['15m', '1h', '4h']
 
@@ -52,101 +51,66 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.error(f"Link Error: {e}")
             await update.message.reply_text("⚠️ Database error.")
     else:
-        await update.message.reply_text("👋 Welcome! Go to your Dashboard and click 'Connect Telegram'.")
+        await update.message.reply_text("👋 Welcome! Go to your Dashboard and click 'Link Telegram Bot'.")
 
 # ==========================================================
-# 2. ALERT DISPATCHER (Sends Notifications)
+# 2. ALERT DISPATCHER (Runs Every 60 Seconds)
 # ==========================================================
-def send_telegram_message(chat_id, message):
-    """Sends message via HTTP to avoid async loop conflict."""
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": chat_id, "text": message, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, json=payload, timeout=5)
-    except Exception as e:
-        logger.error(f"Failed to send Telegram: {e}")
-
 async def alert_loop():
-    """Watches DB for new signals and matches them to alerts."""
-    logger.info("👀 Alert Watcher Started...")
+    """Watches for Price Targets (Live) and DB Signals (Delayed)."""
+    logger.info("👀 Alert Watcher Started (60s cycle)...")
     
-    # Start checking for signals created AFTER now
-    last_processed_time = datetime.utcnow().isoformat()
-
     while True:
         try:
-            # 1. Fetch NEW signals
-            response = supabase.table('market_scans')\
-                .select('*')\
-                .gt('detected_at', last_processed_time)\
-                .order('detected_at', desc=False)\
-                .execute()
-
-            if response.data:
-                last_processed_time = response.data[-1]['detected_at']
-
-                for signal in response.data:
-                    asset = signal['asset']
-                    tf = signal['timeframe']
-                    sig_type = signal['signal_type']
-
-                    # 2. Find Users who want this signal
-                    matches = supabase.table('alerts')\
-                        .select('user_id, users(telegram_chat_id)')\
-                        .eq('asset', asset)\
-                        .eq('timeframe', tf)\
-                        .eq('alert_type', sig_type)\
-                        .eq('status', 'ACTIVE')\
-                        .execute()
-
-                    if matches.data:
-                        logger.info(f"⚡ Dispatching {len(matches.data)} alerts for {asset}")
-                        for alert in matches.data:
-                            user = alert.get('users')
-                            if user and user.get('telegram_chat_id'):
-                                emoji = "🟢" if "BULL" in sig_type else "🔴"
-                                msg = (f"{emoji} *CryptoPulse Alert*\n\n"
-                                       f"🪙 *{asset}*\n⏱ *{tf}*\n📊 *{sig_type.replace('_', ' ')}*")
-                                
-                                # Run in thread to not block the scanner
-                                await asyncio.to_thread(send_telegram_message, user['telegram_chat_id'], msg)
-
-            await asyncio.sleep(10) # Check every 10 seconds
-
+            # This function (from new_alert_engine.py) handles:
+            # A. Checking Live Price vs Target Price (and sending alerts)
+            # B. Checking Database for new Technical Signals (and sending alerts)
+            await check_alerts()
+            
         except Exception as e:
             logger.error(f"Alert Loop Error: {e}")
-            await asyncio.sleep(10)
+            
+        # Run every 60 seconds to catch Price Targets quickly
+        await asyncio.sleep(60)
 
 # ==========================================================
-# 3. MARKET SCANNER (Replaces main.py)
+# 3. MARKET SCANNER (Runs Every 15 Minutes)
 # ==========================================================
 async def scanner_loop():
-    logger.info("📉 Market Scanner Started (15m cycles)...")
+    """Scans market data aligned to 15-minute candles."""
+    logger.info("📉 Market Scanner Started (15m alignment)...")
+    
     while True:
         try:
-            # Calculate wait time for next 15m candle (00, 15, 30, 45)
+            # 1. Calculate wait time for next 15m candle (00, 15, 30, 45)
+            # This ensures we scan exactly when a candle closes
             now = datetime.now()
             minutes_to_next = 15 - (now.minute % 15)
             next_mark = now.replace(second=0, microsecond=0) + timedelta(minutes=minutes_to_next)
             wait_time = (next_mark - now).total_seconds()
 
+            # If we are very close (e.g. < 5s), scan immediately, otherwise wait
             if wait_time > 5:
-                logger.info(f"Scanner sleeping {int(wait_time)}s...")
+                logger.info(f"Scanner sleeping {int(wait_time)}s until next candle...")
                 await asyncio.sleep(wait_time)
+                # Small buffer to ensure exchange has processed the candle close
+                await asyncio.sleep(2) 
             
-            # --- RUN SCAN ---
-            logger.info("--- Starting Scan Cycle ---")
+            # 2. Run Technical Analysis Scan
+            logger.info("--- Starting 15m Scan Cycle ---")
             for symbol in SYMBOLS:
                 for tf in TIMEFRAMES:
                     try:
-                        # Call your existing engine logic
+                        # Calls engine logic to calculate indicators & save to DB
                         await analyze_asset(symbol, tf)
-                        await asyncio.sleep(0.5) # Rate limit
+                        await asyncio.sleep(0.5) # Rate limit protection
                     except Exception as e:
                         logger.error(f"Scan Error {symbol}: {e}")
             
             logger.info("--- Scan Cycle Complete ---")
-            await asyncio.sleep(20) # Buffer
+            
+            # Buffer sleep to prevent double-triggering in the same minute
+            await asyncio.sleep(20) 
             
         except Exception as e:
             logger.error(f"Scanner Crash: {e}")
@@ -168,8 +132,8 @@ async def main():
     # Run Scanner & Alerter Concurrently
     try:
         await asyncio.gather(
-            scanner_loop(),
-            alert_loop()
+            scanner_loop(), # The 15-minute Technical Scan
+            alert_loop()    # The 60-second Alert/Price Check
         )
     except Exception as e:
         logger.error(f"Global Crash: {e}")
@@ -179,6 +143,10 @@ async def main():
 
 if __name__ == "__main__":
     try:
+        # Windows Loop Policy Fix
+        if os.name == 'nt':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+            
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):
         pass

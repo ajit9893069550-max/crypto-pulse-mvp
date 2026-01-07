@@ -1,27 +1,26 @@
 /**
  * UI.JS - Handles Dashboard, Charts, and Audio
- * (Final Version: Includes Inline Descriptions & Smart Charts)
+ * (Final Version: Includes Inline Descriptions, Smart Charts & Price Alerts)
  */
 
-// --- 1. SIGNAL DEFINITIONS (The Text for the Header) ---
+// --- 1. SIGNAL DEFINITIONS (Header Description Text) ---
 const SIGNAL_DEFINITIONS = {
-    'ALL': "Monitoring all assets for high-probability setups in real-time.",
+    'ALL': "Monitoring high-probability setups.",
     
     // Sniper Setups
-    'SNIPER_BUY_REVERSAL': "Price is deeply oversold (RSI < 35) at Support with Volume. Potential Reversal.",
-    'SNIPER_SELL_REJECTION': "Price is overextended (RSI > 65) at Resistance. Potential Rejection.",
-    'MOMENTUM_BREAKOUT': "MACD Bullish Cross + Volume Surge. Trend is accelerating.",
+    'SNIPER_BUY_REVERSAL': "Price < Support AND RSI < 30 AND Vol > 200%. (Reversal)",
+    'SNIPER_SELL_REJECTION': "Price > Resistance AND RSI > 70 AND Vol > 200%. (Rejection)",
+    'MOMENTUM_BREAKOUT': "Price breaks range AND Vol > 200% AND MACD Cross.",
     
-    // Trend
-    'GOLDEN_CROSS': "Bullish pattern where the 50 SMA crosses above the 200 SMA. Long-term uptrend signal.",
-    'DEATH_CROSS': "Bearish pattern where the 50 SMA crosses below the 200 SMA. Warning of a downtrend.",
-    'BB_SQUEEZE': "Volatility is at historic lows. Expect a massive breakout move soon.",
-    'VOLUME_SURGE': "Unusual buying/selling activity detected. Institutional interest likely.",
+    // Major Trend
+    'GOLDEN_CROSS': "50 SMA crosses above 200 SMA (Bull Market Start).",
+    'DEATH_CROSS': "50 SMA crosses below 200 SMA (Bear Market Start).",
+    'VOLUME_SURGE': "Unusual whale activity detected (>3x Avg Vol).",
     
     // Oscillators
-    'RSI_OVERSOLD': "RSI is below 30. Asset is undervalued and may bounce.",
-    'RSI_OVERBOUGHT': "RSI is above 70. Asset is overvalued and may pull back.",
-    'MACD_BULL_CROSS': "Momentum shifting to bullish. Good entry signal in uptrends."
+    'RSI_OVERSOLD': "RSI is below 30. Asset is undervalued.",
+    'RSI_OVERBOUGHT': "RSI is above 70. Asset is overvalued.",
+    'MACD_BULL_CROSS': "Momentum shifting to bullish."
 };
 
 // --- CONFIG: Chart Indicators Map ---
@@ -31,22 +30,14 @@ const STUDY_MAP = {
     'MACD_BULL_CROSS':     ['MACD@tv-basicstudies'],
     'MACD_BEAR_CROSS':     ['MACD@tv-basicstudies'],
     'BB_SQUEEZE':          ['BB@tv-basicstudies'],
-    'BB_UPPER_BREAKOUT':   ['BB@tv-basicstudies'],
-    'BB_LOWER_TOUCH':      ['BB@tv-basicstudies'],
     'GOLDEN_CROSS':        ['MASimple@tv-basicstudies', 'MASimple@tv-basicstudies'], 
     'DEATH_CROSS':         ['MASimple@tv-basicstudies', 'MASimple@tv-basicstudies'],
-    'EMA_20_PULLBACK':     ['MAExp@tv-basicstudies'],
     'SNIPER_BUY_REVERSAL': ['RSI@tv-basicstudies', 'BB@tv-basicstudies'],
     'SNIPER_SELL_REJECTION':['RSI@tv-basicstudies', 'BB@tv-basicstudies'],
     'MOMENTUM_BREAKOUT':   ['MACD@tv-basicstudies']
 };
 
-const TF_MAP = {
-    '15m': '15',
-    '1h':  '60',
-    '4h':  '240',
-    '1d':  'D'
-};
+const TF_MAP = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D' };
 
 // --- HELPERS ---
 function timeAgo(dateString) {
@@ -58,8 +49,14 @@ function timeAgo(dateString) {
     return Math.floor(seconds / 86400) + "d ago";
 }
 
-function cleanSignalName(name) {
+function cleanSignalName(name, price = null) {
+    // If it's a price alert, format it nicely
+    if (name === 'PRICE_TARGET' && price) {
+        return `💰 Target: $${price}`;
+    }
+
     const map = {
+        'PRICE_TARGET': '💰 Price Alert',
         'SNIPER_BUY_REVERSAL': '🎯 Sniper Buy',
         'SNIPER_SELL_REJECTION': '🛑 Sniper Sell',
         'MOMENTUM_BREAKOUT': '🚀 Breakout',
@@ -69,8 +66,7 @@ function cleanSignalName(name) {
         'RSI_OVERBOUGHT': '📈 RSI Overbought',
         'BB_SQUEEZE': '🤐 Volatility Squeeze',
         'VOLUME_SURGE': '📊 Volume Surge',
-        'MACD_BULL_CROSS': '🟢 MACD Bull Cross',
-        'MACD_BEAR_CROSS': '🔴 MACD Bear Cross'
+        'MACD_BULL_CROSS': '🟢 MACD Bull Cross'
     };
     return map[name] || name.replace(/_/g, ' ');
 }
@@ -79,6 +75,23 @@ function copyToClipboard(text) {
     navigator.clipboard.writeText(text).then(() => {
         console.log("Copied to clipboard");
     });
+}
+
+// --- TOGGLE FUNCTION (For Price Alert Input) ---
+function togglePriceInput() {
+    const type = document.getElementById('alertType').value;
+    const inputGroup = document.getElementById('priceInputGroup');
+    const priceInput = document.getElementById('alertPrice');
+    
+    if (type === 'PRICE_TARGET') {
+        inputGroup.style.display = 'block';
+        priceInput.required = true;
+        priceInput.focus();
+    } else {
+        inputGroup.style.display = 'none';
+        priceInput.required = false;
+        priceInput.value = '';
+    }
 }
 
 // --- CORE RENDER FUNCTIONS ---
@@ -95,7 +108,6 @@ async function refreshSignals(type) {
         return;
     }
 
-    // Audio Alert
     const latestTime = new Date(data[0].detected_at);
     if ((new Date() - latestTime) < 60000) {
         const audio = document.getElementById('alertSound');
@@ -134,14 +146,17 @@ async function refreshAlerts() {
         return;
     }
 
-    container.innerHTML = alerts.map(a => `
+    container.innerHTML = alerts.map(a => {
+        const displayName = cleanSignalName(a.alert_type, a.target_price);
+        return `
         <div class="card alert-item" style="margin-bottom: 10px; padding: 12px; display: flex; justify-content: space-between; align-items: center;">
             <div>
                 <strong>${a.asset}</strong> <span class="tf-badge tf-${a.timeframe}">${a.timeframe}</span><br>
-                <small style="color: var(--text-dim);">${cleanSignalName(a.alert_type)}</small>
+                <small style="color: var(--text-dim);">${displayName}</small>
             </div>
             <button onclick="handleDeleteAlert(${a.id})" class="text-danger" style="background:none; border:none; cursor:pointer; font-size: 16px;">&times;</button>
-        </div>`).join('');
+        </div>`;
+    }).join('');
 }
 
 async function updateTelegramUI() {
@@ -207,7 +222,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     refreshAlerts();
     updateTelegramUI();
 
-    // Alert Logic
+    // UPDATED: Alert Creation Logic
     const form = document.getElementById('createAlertForm');
     if (form) {
         form.onsubmit = async (e) => {
@@ -218,7 +233,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             const payload = {
                 asset: document.getElementById('alertAsset').value,
                 timeframe: document.getElementById('alertTimeframe').value,
-                signal_type: document.getElementById('alertType').value
+                signal_type: document.getElementById('alertType').value,
+                target_price: document.getElementById('alertPrice').value || null 
             };
 
             const res = await API.createAlert(payload);
@@ -226,6 +242,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 status.innerHTML = `<span class="text-success">✅ Alert Active!</span>`;
                 refreshAlerts();
                 form.reset();
+                togglePriceInput(); // Reset visibility
                 setTimeout(() => status.innerText = "", 3000);
             } else {
                 status.innerHTML = `<span class="text-danger">❌ Error</span>`;
@@ -247,7 +264,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // --- UPDATED: Sidebar Click + Inline Description ---
+    // Sidebar Logic (Updates Description Inline)
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', function () {
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
@@ -255,15 +272,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             const categoryType = this.getAttribute('data-type');
             
-            // 1. Update Title
             const title = document.getElementById('currentCategoryTitle');
             if (title) title.innerText = this.innerText;
 
-            // 2. Update Description Inline
             const desc = document.getElementById('categoryDescription');
             if (desc) {
                 const text = SIGNAL_DEFINITIONS[categoryType] || "";
-                // If there is text, add " - " before it, otherwise blank
                 desc.innerText = text ? `- ${text}` : "";
             }
 

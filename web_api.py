@@ -133,10 +133,20 @@ def delete_alert():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
-    if path.startswith('api/'): return jsonify({"error": "Not Found"}), 404
-    if path == "login.html": return render_template('login.html')
-    if path == "register.html": return render_template('register.html')
-    return render_template('index.html')
+    # 1. Block invalid API calls
+    if path.startswith('api/'): 
+        return jsonify({"error": "Not Found"}), 404
+    
+    # 2. Get Bot Username from .env (Critical for Telegram Link)
+    bot_user = os.environ.get("BOT_USERNAME", "")
+
+    # 3. Serve Login Page
+    if path == "login.html": 
+        return render_template('login.html', bot_username=bot_user)
+
+    # 4. Default: Serve Dashboard (index.html)
+    # We pass 'bot_username' so the JavaScript can create the correct link
+    return render_template('index.html', bot_username=bot_user)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
