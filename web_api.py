@@ -1,86 +1,53 @@
-import re
 import os
-import json
 import logging
-from datetime import datetime, timedelta, timezone 
+from datetime import timedelta
 from flask import Flask, request, jsonify, render_template
-from flask_cors import CORS 
+from flask_cors import CORS
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity, JWTManager
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from supabase import create_client, Client
-import ccxt 
 from dotenv import load_dotenv
-
-# Import database connection helper
-from database_manager import get_db_connection
 
 load_dotenv()
 
-# --- CONFIGURATION & INITIALIZATION ---
-logging.basicConfig(level=logging.INFO)
+# --- CONFIGURATION ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("WebAPI")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-# CRITICAL: Backend uses Service Role Key to bypass RLS for admin tasks
+# CRITICAL: Use Service Role Key for Admin tasks (like creating users)
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
 JWT_SECRET = os.environ.get("SUPABASE_JWT_SECRET")
 
 if not all([SUPABASE_URL, SUPABASE_KEY, JWT_SECRET]):
-    logger.critical("FATAL: Missing SUPABASE_URL, SUPABASE_KEY, or JWT_SECRET.")
+    logger.critical("❌ Missing Secrets! Check .env file.")
+    exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 app = Flask(__name__, template_folder='templates')
 
-# --- Rate Limiter Setup ---
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri="memory://",
-)
-
-# --- JWT Configuration ---
-app.config["JWT_SECRET_KEY"] = JWT_SECRET 
+# --- SECURITY ---
+limiter = Limiter(get_remote_address, app=app, default_limits=["1000 per day"], storage_uri="memory://")
+app.config["JWT_SECRET_KEY"] = JWT_SECRET
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=24)
 jwt = JWTManager(app)
-
-# --- CORS ---
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-# --- CCXT CONFIGURATION ---
-EXCHANGE = ccxt.binance({
-    'enableRateLimit': True,
-    'options': {'defaultType': 'spot', 'adjustForTimeDifference': True},
-    'urls': { 'api': { 'public': 'https://data-api.binance.vision/api/v3' } }
-})
-SUPPORTED_TOKENS = ['BTC', 'ETH', 'SOL', 'BNB', 'ADA', 'XRP', 'DOGE'] 
-
-# =================================================================
-#                         API ROUTES (JSON)
-# =================================================================
+# --- API ROUTES ---
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
-    """Provides keys for the frontend. Frontend ALWAYS uses ANON_KEY."""
+    """Sends public config to Frontend."""
     return jsonify({
-        "SUPABASE_URL": SUPABASE_URL, 
-        "SUPABASE_KEY": os.environ.get("SUPABASE_KEY") 
+        "SUPABASE_URL": SUPABASE_URL,
+        "SUPABASE_KEY": os.environ.get("SUPABASE_KEY"), # Send ANON key to frontend
+        "BOT_USERNAME": os.environ.get("BOT_USERNAME", "CryptoPulse_Dev_Bot") # Dynamic Bot Name
     }), 200
 
-@app.route('/api/signup', methods=['POST'])
-@limiter.limit("5 per hour") # Prevent bot spam
-def signup():
-    data = request.get_json()
-    try:
-        response = supabase.auth.sign_up({"email": data['email'], "password": data['password']})
-        return jsonify({"message": "Success", "user_id": response.user.id}), 201
-    except Exception as e:
-        return jsonify({"error": str(e)}), 400
-
 @app.route('/api/login', methods=['POST'])
-@limiter.limit("10 per hour") # Protect against brute force
+@limiter.limit("10 per hour")
 def login():
     data = request.get_json()
     try:
@@ -89,11 +56,24 @@ def login():
             token = create_access_token(identity=str(response.user.id))
             return jsonify(access_token=token, user_id=response.user.id), 200
     except Exception as e:
+        logger.error(f"Login failed: {e}")
         return jsonify({"error": "Invalid credentials"}), 401
+
+@app.route('/api/signup', methods=['POST'])
+@limiter.limit("5 per hour")
+def signup():
+    data = request.get_json()
+    try:
+        response = supabase.auth.sign_up({"email": data['email'], "password": data['password']})
+        if response.user:
+            return jsonify({"message": "Success", "user_id": response.user.id}), 201
+        return jsonify({"error": "Signup failed"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
 
 @app.route('/api/signals', methods=['GET'])
 def get_signals():
-    signal_type = request.args.get('type') 
+    signal_type = request.args.get('type')
     try:
         query = supabase.table('market_scans').select('*')
         if signal_type and signal_type != 'ALL':
@@ -105,43 +85,36 @@ def get_signals():
 
 @app.route('/api/create-alert', methods=['POST'])
 @jwt_required()
-@limiter.limit("20 per minute")
 def create_alert():
-    user_uuid = get_jwt_identity() 
+    user_uuid = get_jwt_identity()
     data = request.get_json()
-    conn = get_db_connection()
-    if not conn: return jsonify({"error": "DB Fail"}), 500
     try:
-        with conn.cursor() as cur:
-            # Force UUID type casting to solve Error 42883
-            cur.execute("""
-                INSERT INTO public.alerts (user_id, asset, timeframe, alert_type, status)
-                VALUES (%s::uuid, %s, %s, %s, 'ACTIVE')
-            """, (user_uuid, data['asset'], data['timeframe'], data['signal_type']))
-            conn.commit()
+        # Optimized: Use Supabase Client (No more database_manager.py)
+        response = supabase.table('alerts').insert({
+            "user_id": user_uuid,
+            "asset": data['asset'],
+            "timeframe": data['timeframe'],
+            "alert_type": data['signal_type'],
+            "status": "ACTIVE"
+        }).execute()
         return jsonify({"success": True}), 201
     except Exception as e:
-        logger.error(f"SQL Insert Error: {e}")
-        return jsonify({"error": "Database error"}), 500
-    finally:
-        conn.close()
+        logger.error(f"Create Alert Error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/my-alerts', methods=['GET'])
 @jwt_required()
 def get_my_alerts():
     user_id = get_jwt_identity()
     try:
-        # Administrative sync: check if user profile exists
-        profile = supabase.table('users').select('user_uuid').eq('user_uuid', user_id).execute()
-        
-        # Service Role allows backend to create profiles bypassing RLS
-        if not profile.data:
+        # Sync User Profile if missing
+        user_check = supabase.table('users').select('user_uuid', count='exact').eq('user_uuid', user_id).execute()
+        if user_check.count == 0:
             supabase.table('users').insert({'user_uuid': user_id}).execute()
-        
+            
         response = supabase.table('alerts').select('*').eq('user_id', user_id).eq('status', 'ACTIVE').execute()
         return jsonify(response.data), 200
     except Exception as e:
-        logger.error(f"My Alerts Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/delete-alert', methods=['POST'])
@@ -156,31 +129,15 @@ def delete_alert():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# --- FRONT-END ROUTES ---
-@app.route('/login.html')
-def login_page():
-    return render_template('login.html')
-
-@app.route('/register.html')
-def register_page():
-    return render_template('register.html')
-
-@app.route('/', defaults={'path': ''}, endpoint='dashboard_home')
+# --- FRONTEND SERVING ---
+@app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
-def catch_all(path):
-    if path.startswith('api/'):
-        return jsonify({"error": "API Route Not Found"}), 404
+def serve_frontend(path):
+    if path.startswith('api/'): return jsonify({"error": "Not Found"}), 404
+    if path == "login.html": return render_template('login.html')
+    if path == "register.html": return render_template('register.html')
     return render_template('index.html')
 
-# --- ERROR HANDLERS ---
-@app.errorhandler(429)
-def ratelimit_handler(e):
-    return jsonify({"error": "Too Many Requests", "message": "Slow down! Try again in a minute."}), 429
-
-@jwt.unauthorized_loader
-def unauthorized_callback(c):
-    return jsonify({"error": "No token provided"}), 401
-
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5001)) 
-    app.run(host='0.0.0.0', port=port)
+    port = int(os.environ.get("PORT", 5001))
+    app.run(host='0.0.0.0', port=port, debug=True)

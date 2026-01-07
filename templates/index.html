@@ -5,14 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>CryptoPulse | Intelligence Dashboard</title>
     
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
     
     <script>
-        /**
-         * SECURITY & SESSION HANDLER
-         * Capture OAuth tokens from URL fragment and immediately clean the URL
-         */
         (function() {
             const hash = window.location.hash;
             if (hash && hash.includes("access_token=")) {
@@ -21,14 +17,8 @@
                 const refreshToken = params.get("refresh_token");
 
                 if (accessToken) {
-                    // 1. Save to localStorage for frontend API calls
                     localStorage.setItem("supabase_token", accessToken);
                     if (refreshToken) localStorage.setItem("supabase_refresh_token", refreshToken);
-                    
-                    console.log("Security: OAuth token captured and stored.");
-                    
-                    // 2. IMMEDIATELY clean the URL hash to prevent sensitive data exposure
-                    // This replaces 'yoursite.com/#access_token=...' with just 'yoursite.com/'
                     window.history.replaceState(null, null, window.location.pathname);
                 }
             }
@@ -37,71 +27,80 @@
 </head>
 <body>
 
+    <div id="chartModal" class="modal-overlay">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle" style="margin:0; color:var(--text-main);">BTC/USDT Chart</h3>
+                <button onclick="closeModal()" class="btn-close">✕</button>
+            </div>
+            <div id="tv_chart_container" style="height: 500px; width: 100%;"></div>
+        </div>
+    </div>
+
+    <audio id="alertSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.m4a" preload="auto"></audio>
+
     <div class="dashboard-wrapper">
         <aside class="sidebar">
-            <div class="sidebar-header">
-                <h3>Signal Filters</h3>
+            <div class="sidebar-header" style="padding: 20px; border-bottom: 1px solid var(--border-color);">
+                <h3 style="color: var(--text-main);">Signal Filters</h3>
             </div>
             
             <ul id="signalFilters" class="sidebar-nav">
                 <li class="nav-item active" data-type="ALL">🌍 All Live Signals</li>
                 
-                <p class="menu-label">Trend Following</p>
+                <p class="menu-label" style="padding: 10px 20px 5px; color: var(--accent-blue);">Sniper Setups</p>
+                <li class="nav-item" data-type="SNIPER_BUY_REVERSAL">🎯 Sniper Buy (Reversal)</li>
+                <li class="nav-item" data-type="SNIPER_SELL_REJECTION">🛑 Sniper Sell (Reject)</li>
+                <li class="nav-item" data-type="MOMENTUM_BREAKOUT">🚀 Momentum Breakout</li>
+
+                <p class="menu-label" style="padding: 10px 20px 5px; color: var(--accent-blue);">Trend & Volatility</p>
                 <li class="nav-item" data-type="GOLDEN_CROSS">🟡 Golden Cross</li>
                 <li class="nav-item" data-type="DEATH_CROSS">💀 Death Cross</li>
-                <li class="nav-item" data-type="EMA_20_PULLBACK">🔄 EMA 20 Pullback</li>
-                <li class="nav-item" data-type="NEW_HIGH">🚀 New 24h High</li>
+                <li class="nav-item" data-type="BB_SQUEEZE">🤐 Volatility Squeeze</li>
+                <li class="nav-item" data-type="VOLUME_SURGE">📊 Volume Surge</li>
 
-                <p class="menu-label">Momentum & RSI</p>
+                <p class="menu-label" style="padding: 10px 20px 5px; color: var(--accent-blue);">Oscillators</p>
                 <li class="nav-item" data-type="RSI_OVERSOLD">📉 RSI Oversold</li>
                 <li class="nav-item" data-type="RSI_OVERBOUGHT">📈 RSI Overbought</li>
-                <li class="nav-item" data-type="RSI_BULLISH_DIV">⚖️ RSI Bullish Div</li>
-                <li class="nav-item" data-type="STOCH_RSI_BULLISH">⚡ Stoch RSI Bullish</li>
-
-                <p class="menu-label">MACD Signals</p>
                 <li class="nav-item" data-type="MACD_BULL_CROSS">🟢 MACD Bull Cross</li>
-                <li class="nav-item" data-type="MACD_BEAR_CROSS">🔴 MACD Bear Cross</li>
-
-                <p class="menu-label">Volatility & Volume</p>
-                <li class="nav-item" data-type="BB_SQUEEZE">🤐 BB Squeeze</li>
-                <li class="nav-item" data-type="BB_UPPER_BREAKOUT">☁️ BB Upper Breakout</li>
-                <li class="nav-item" data-type="BB_LOWER_TOUCH">☁️ BB Lower Touch</li>
-                <li class="nav-item" data-type="BULLISH_ENGULFING">🕯️ Bullish Engulfing</li>
-                <li class="nav-item" data-type="VOLUME_SURGE">📊 Volume Surge</li>
             </ul>
         </aside>
 
         <main class="main-content">
             <header class="top-nav">
                 <button id="menuToggle" class="menu-hamburger" title="Open Filters">
-                    <span></span>
-                    <span></span>
-                    <span></span>
+                    <span></span><span></span><span></span>
                 </button>
 
                 <div class="brand">CryptoPulse <span>Scanner</span></div>
                 
                 <div class="nav-actions">
-                    <button id="themeToggle" class="btn-alerts" title="Toggle Light/Dark Mode">🌓</button>
+                    <button id="themeToggle" class="btn-alerts" title="Toggle Theme" style="background:none; border:none; font-size:18px; cursor:pointer;">🌓</button>
                     <span id="authStatusLink"></span>
                 </div>
             </header>
 
             <div class="content-body">
+                
                 <section class="display-section">
                     <div class="section-header">
-                        <h2 id="currentCategoryTitle">All Live Market Signals</h2>
-                        <span class="update-tag">Updates every 60s (IST)</span>
+                        <div>
+                             <h2 id="currentCategoryTitle" style="margin-bottom: 5px;">All Live Market Signals</h2>
+                             <p id="categoryDescription" style="color: var(--text-dim); font-size: 13px; max-width: 600px; line-height: 1.4;">
+                                     Monitoring all assets for high-probability setups in real-time.
+                             </p>
+                        </div>
+                        <span class="update-tag" style="font-size: 11px; background: var(--bg-card); padding: 5px 10px; border-radius: 12px; border: 1px solid var(--border-color);">⚡ Live Updates</span>
                     </div>
 
                     <div class="table-container">
                         <table id="marketScansTable">
                             <thead>
                                 <tr>
-                                    <th>Asset</th>
-                                    <th>TF</th>
-                                    <th>Signal Type</th>
-                                    <th>Detected At</th>
+                                    <th style="width: 35%;">Asset</th>
+                                    <th style="width: 15%;">TF</th>
+                                    <th style="width: 35%;">Signal Type</th>
+                                    <th style="width: 15%;">Age</th>
                                 </tr>
                             </thead>
                             <tbody id="marketScansList">
@@ -109,8 +108,7 @@
                             </tbody>
                         </table>
                     </div>
-                </section>
-
+                </section> 
                 <aside class="alert-sidebar">
                     <div id="telegramLinkSection">
                         <h4 style="color: #0088cc; margin-bottom: 5px; display: flex; align-items: center;">
@@ -128,7 +126,7 @@
                         <form id="createAlertForm">
                             <div class="input-group">
                                 <label class="menu-label">Asset</label>
-                                <select id="alertAsset" class="btn-alerts" required>
+                                <select id="alertAsset" required>
                                     <option value="BTC/USDT">Bitcoin (BTC)</option>
                                     <option value="ETH/USDT">Ethereum (ETH)</option>
                                     <option value="SOL/USDT">Solana (SOL)</option>
@@ -141,7 +139,7 @@
 
                             <div class="input-group">
                                 <label class="menu-label">Timeframe</label>
-                                <select id="alertTimeframe" class="btn-alerts" required>
+                                <select id="alertTimeframe" required>
                                     <option value="15m">15 Minutes</option>
                                     <option value="1h">1 Hour</option>
                                     <option value="4h">4 Hours</option>
@@ -150,16 +148,22 @@
 
                             <div class="input-group">
                                 <label class="menu-label">Signal Type</label>
-                                <select id="alertType" class="btn-alerts" required>
-                                    <option value="GOLDEN_CROSS">Golden Cross</option>
-                                    <option value="RSI_OVERSOLD">RSI Oversold</option>
-                                    <option value="MACD_BULL_CROSS">MACD Bull Cross</option>
-                                    <option value="BB_SQUEEZE">Bollinger Squeeze</option>
-                                    <option value="VOLUME_SURGE">Volume Surge</option>
+                                <select id="alertType" required>
+                                    <optgroup label="Sniper Setups">
+                                        <option value="SNIPER_BUY_REVERSAL">🎯 Sniper Buy</option>
+                                        <option value="SNIPER_SELL_REJECTION">🛑 Sniper Sell</option>
+                                        <option value="MOMENTUM_BREAKOUT">🚀 Breakout</option>
+                                    </optgroup>
+                                    <optgroup label="Technical Indicators">
+                                        <option value="GOLDEN_CROSS">Golden Cross</option>
+                                        <option value="RSI_OVERSOLD">RSI Oversold</option>
+                                        <option value="MACD_BULL_CROSS">MACD Bull Cross</option>
+                                        <option value="BB_SQUEEZE">Bollinger Squeeze</option>
+                                    </optgroup>
                                 </select>
                             </div>
 
-                            <button type="submit" class="btn-create" style="width:100%; padding:12px; font-weight: bold;">Activate Alert</button>
+                            <button type="submit" class="btn-create">Activate Alert</button>
                         </form>
                         <div id="createAlertStatus" style="margin-top:10px; text-align:center; font-size:12px;"></div>
                     </div>
@@ -175,7 +179,10 @@
         </main>
     </div>
 
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="{{ url_for('static', filename='scripts.js') }}"></script>
+    <script src="{{ url_for('static', filename='auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='api.js') }}"></script>
+    <script src="{{ url_for('static', filename='ui.js') }}"></script>
 </body>
 </html>
