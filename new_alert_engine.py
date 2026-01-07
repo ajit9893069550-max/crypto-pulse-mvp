@@ -146,7 +146,6 @@ async def analyze_asset(symbol, timeframe):
 async def check_alerts():
     """Checks for Price Targets (Live) and Database Signals (Delayed)."""
     
-    # 1. Fetch Users Alerts (FIXED: Table name is 'alerts', not 'user_alerts')
     try:
         response = supabase.table('alerts').select("*").execute()
         alerts = response.data
@@ -161,23 +160,40 @@ async def check_alerts():
         asset = alert['asset']
         alert_type = alert['alert_type']
         
-        # --- A. PRICE ALERTS (Real-Time Check) ---
-        if alert_type == 'PRICE_TARGET':
-            target_price = alert.get('target_price')
-            if target_price:
-                current_price = await get_live_price(asset)
-                if current_price and current_price >= float(target_price):
-                    msg = f"💰 <b>PRICE ALERT:</b>\n#{asset} hit <b>${current_price}</b>\n(Target: ${target_price})"
-                    await send_telegram_message(user_id, msg)
-                    
-                    # Delete alert (FIXED: Table name is 'alerts')
-                    supabase.table('alerts').delete().eq('id', alert['id']).execute()
-        
-        # --- B. TECHNICAL ALERTS (Database Check) ---
-        else:
-            # Check if we found this signal in the last 15 mins
-            fifteen_mins_ago = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
+        # --- A. PRICE ALERTS (Smart Direction) ---
+        if 'PRICE_TARGET' in alert_type:
+            target_price = float(alert.get('target_price', 0))
+            current_price = await get_live_price(asset)
             
+            if not current_price: continue
+            
+            triggered = False
+            
+            # Case 1: Waiting for Pump (Target > Old Price)
+            if alert_type == 'PRICE_TARGET_ABOVE' and current_price >= target_price:
+                triggered = True
+                
+            # Case 2: Waiting for Dump (Target < Old Price)
+            # This handles your "BTC drops to 88k" case
+            elif alert_type == 'PRICE_TARGET_BELOW' and current_price <= target_price:
+                triggered = True
+                
+            # Case 3: Fallback (Legacy)
+            elif alert_type == 'PRICE_TARGET' and current_price >= target_price:
+                triggered = True
+
+            if triggered:
+                # Send Message
+                emoji = "📈" if "ABOVE" in alert_type else "📉"
+                msg = f"{emoji} <b>PRICE ALERT:</b>\n#{asset} reached <b>${current_price}</b>\n(Target: ${target_price})"
+                await send_telegram_message(user_id, msg)
+                
+                # Delete Alert
+                supabase.table('alerts').delete().eq('id', alert['id']).execute()
+        
+        # --- B. TECHNICAL ALERTS ---
+        else:
+            fifteen_mins_ago = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
             try:
                 scan_res = supabase.table('market_scans')\
                     .select("*")\
@@ -190,7 +206,6 @@ async def check_alerts():
                 if scan_res.data:
                     msg = f"🚀 <b>SIGNAL ALERT:</b>\n#{asset} ({alert['timeframe']})\n<b>{alert_type.replace('_', ' ')}</b> detected!"
                     await send_telegram_message(user_id, msg)
-                    
             except Exception as e:
                 logger.error(f"Error checking signals: {e}")
 
