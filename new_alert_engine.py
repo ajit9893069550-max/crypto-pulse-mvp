@@ -59,7 +59,7 @@ async def get_live_price(symbol):
         logger.error(f"Error fetching price for {symbol}: {e}")
         return None
 
-# --- CORE LOGIC 1: TECHNICAL ANALYSIS (Your Indicator Code) ---
+# --- CORE LOGIC 1: TECHNICAL ANALYSIS ---
 
 async def analyze_asset(symbol, timeframe):
     """Fetches data, calculates indicators, and saves signals to Supabase."""
@@ -141,14 +141,14 @@ async def analyze_asset(symbol, timeframe):
     except Exception as e:
         logger.error(f"Error analyzing {symbol}: {e}")
 
-# --- CORE LOGIC 2: ALERT CHECKER (Telegram + Price Checks) ---
+# --- CORE LOGIC 2: ALERT CHECKER ---
 
 async def check_alerts():
     """Checks for Price Targets (Live) and Database Signals (Delayed)."""
     
-    # 1. Fetch Users Alerts
+    # 1. Fetch Users Alerts (FIXED: Table name is 'alerts', not 'user_alerts')
     try:
-        response = supabase.table('user_alerts').select("*").execute()
+        response = supabase.table('alerts').select("*").execute()
         alerts = response.data
     except Exception as e:
         logger.error(f"DB Error: {e}")
@@ -169,8 +169,9 @@ async def check_alerts():
                 if current_price and current_price >= float(target_price):
                     msg = f"💰 <b>PRICE ALERT:</b>\n#{asset} hit <b>${current_price}</b>\n(Target: ${target_price})"
                     await send_telegram_message(user_id, msg)
-                    # Delete alert to stop spam
-                    supabase.table('user_alerts').delete().eq('id', alert['id']).execute()
+                    
+                    # Delete alert (FIXED: Table name is 'alerts')
+                    supabase.table('alerts').delete().eq('id', alert['id']).execute()
         
         # --- B. TECHNICAL ALERTS (Database Check) ---
         else:
@@ -187,11 +188,9 @@ async def check_alerts():
                     .execute()
                 
                 if scan_res.data:
-                    # Found a signal!
                     msg = f"🚀 <b>SIGNAL ALERT:</b>\n#{asset} ({alert['timeframe']})\n<b>{alert_type.replace('_', ' ')}</b> detected!"
                     await send_telegram_message(user_id, msg)
                     
-                    # Optional: Add logic here to prevent re-sending the same signal ID
             except Exception as e:
                 logger.error(f"Error checking signals: {e}")
 

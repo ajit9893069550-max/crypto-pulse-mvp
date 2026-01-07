@@ -18,7 +18,7 @@ async function initAuth() {
         const res = await fetch('/api/config');
         const cfg = await res.json();
         
-        // 1. Setup Bot Username (Prioritize Window variable if HTML set it)
+        // 1. Setup Bot Username
         if (!window.BOT_USERNAME && cfg.BOT_USERNAME) {
             window.BOT_USERNAME = cfg.BOT_USERNAME;
         }
@@ -28,18 +28,30 @@ async function initAuth() {
             window.supabaseClient = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_KEY);
         }
 
-        // 3. Check for active session
+        // 3. LISTEN FOR AUTH CHANGES (Fixes Google Sign-In)
         if (window.supabaseClient) {
+            // This listener automatically catches the Google Redirect Hash
+            window.supabaseClient.auth.onAuthStateChange((event, session) => {
+                if (event === 'SIGNED_IN' && session) {
+                    console.log("✅ User Signed In via Google/Email");
+                    localStorage.setItem(window.TOKEN_KEY, session.access_token);
+                    localStorage.setItem(window.USER_ID_KEY, session.user.id);
+                    updateAuthButton();
+                    // Refresh alerts if the UI is ready
+                    if (window.refreshAlerts) window.refreshAlerts();
+                } else if (event === 'SIGNED_OUT') {
+                    console.log("👋 User Signed Out");
+                    localStorage.removeItem(window.TOKEN_KEY);
+                    localStorage.removeItem(window.USER_ID_KEY);
+                    updateAuthButton();
+                }
+            });
+
+            // Also check current session immediately (for page refreshes)
             const { data: { session } } = await window.supabaseClient.auth.getSession();
-            
             if (session) {
-                // Save session details
                 localStorage.setItem(window.TOKEN_KEY, session.access_token);
                 localStorage.setItem(window.USER_ID_KEY, session.user.id);
-            } else {
-                // Clear stale data if no session
-                localStorage.removeItem(window.TOKEN_KEY);
-                localStorage.removeItem(window.USER_ID_KEY);
             }
         }
         
@@ -81,7 +93,7 @@ async function logout() {
     // Clear Local Storage
     localStorage.clear();
     
-    // REDIRECT TO DASHBOARD (Not Login Page)
+    // REDIRECT TO DASHBOARD
     window.location.href = '/';
 }
 
