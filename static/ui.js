@@ -1,9 +1,11 @@
 /**
- * UI.JS - Handles Dashboard, Charts, and Audio
- * (Final Version: Includes Inline Descriptions, Smart Charts & Price Alerts)
+ * UI.JS - Handles Dashboard, Charts, Audio & Live Ticker
+ * (Final Version: Includes Inline Descriptions, Smart Charts & Price Ticker)
  */
 
-// --- 1. SIGNAL DEFINITIONS (Header Description Text) ---
+// --- 1. CONFIGURATION & DEFINITIONS ---
+const WATCHLIST = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'BNBUSDT', 'DOGEUSDT'];
+
 const SIGNAL_DEFINITIONS = {
     'ALL': "Monitoring high-probability setups.",
     
@@ -23,7 +25,6 @@ const SIGNAL_DEFINITIONS = {
     'MACD_BULL_CROSS': "Momentum shifting to bullish."
 };
 
-// --- CONFIG: Chart Indicators Map ---
 const STUDY_MAP = {
     'RSI_OVERSOLD':        ['RSI@tv-basicstudies'],
     'RSI_OVERBOUGHT':      ['RSI@tv-basicstudies'],
@@ -39,7 +40,49 @@ const STUDY_MAP = {
 
 const TF_MAP = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D' };
 
-// --- HELPERS ---
+// --- 2. LIVE TICKER FUNCTION ---
+async function updateTicker() {
+    const container = document.getElementById('tickerBar');
+    if (!container) return;
+
+    try {
+        // Fetch 24hr stats for ALL symbols (Public API)
+        const res = await fetch('https://data-api.binance.vision/api/v3/ticker/24hr');
+        const data = await res.json();
+
+        // Filter only our coins
+        const relevantData = data.filter(item => WATCHLIST.includes(item.symbol));
+
+        // Build HTML
+        container.innerHTML = relevantData.map(item => {
+            const asset = item.symbol.replace('USDT', '');
+            const price = parseFloat(item.lastPrice);
+            const change = parseFloat(item.priceChangePercent);
+            const isUp = change >= 0;
+            
+            const displayPrice = price < 1 
+                ? price.toFixed(4) 
+                : price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+            return `
+                <div class="ticker-item">
+                    <div class="ticker-pair">${asset} <span style="opacity:0.5">/ USDT</span></div>
+                    <div class="ticker-data">
+                        <span class="ticker-price">$${displayPrice}</span>
+                        <span class="ticker-change ${isUp ? 'ticker-up' : 'ticker-down'}">
+                            ${isUp ? '▲' : '▼'} ${Math.abs(change).toFixed(2)}%
+                        </span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+    } catch (e) {
+        console.error("Ticker Error:", e);
+    }
+}
+
+// --- 3. HELPER FUNCTIONS ---
 function timeAgo(dateString) {
     const date = new Date(dateString);
     const seconds = Math.floor((new Date() - date) / 1000);
@@ -51,8 +94,9 @@ function timeAgo(dateString) {
 
 function cleanSignalName(name, price = null) {
     // If it's a price alert, format it nicely
-    if (name === 'PRICE_TARGET' && price) {
-        return `💰 Target: $${price}`;
+    if (name.includes('PRICE_TARGET') && price) {
+        const direction = name.includes('ABOVE') ? ' (Above)' : name.includes('BELOW') ? ' (Below)' : '';
+        return `💰 Target: $${price}${direction}`;
     }
 
     const map = {
@@ -77,7 +121,7 @@ function copyToClipboard(text) {
     });
 }
 
-// --- TOGGLE FUNCTION (For Price Alert Input) ---
+// --- 4. TOGGLE FUNCTION (For Price Alert Input) ---
 function togglePriceInput() {
     const type = document.getElementById('alertType').value;
     const inputGroup = document.getElementById('priceInputGroup');
@@ -94,7 +138,7 @@ function togglePriceInput() {
     }
 }
 
-// --- CORE RENDER FUNCTIONS ---
+// --- 5. CORE RENDER FUNCTIONS ---
 async function refreshSignals(type) {
     const list = document.getElementById('marketScansList');
     if (!list) return;
@@ -108,6 +152,7 @@ async function refreshSignals(type) {
         return;
     }
 
+    // Audio Alert for New Signals (< 1 min old)
     const latestTime = new Date(data[0].detected_at);
     if ((new Date() - latestTime) < 60000) {
         const audio = document.getElementById('alertSound');
@@ -174,7 +219,7 @@ async function updateTelegramUI() {
     }
 }
 
-// --- CHART MODAL ---
+// --- 6. CHART MODAL ---
 function openChart(symbol, timeframe = '1h', signalType = 'NONE') {
     const modal = document.getElementById('chartModal');
     const title = document.getElementById('modalTitle');
@@ -208,7 +253,7 @@ function closeModal() {
     document.getElementById('tv_chart_container').innerHTML = '';
 }
 
-// --- EVENTS ---
+// --- 7. EVENTS & INITIALIZATION ---
 async function handleDeleteAlert(id) {
     if (confirm("Stop receiving this alert?")) {
         await API.deleteAlert(id);
@@ -217,12 +262,19 @@ async function handleDeleteAlert(id) {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+    // 1. Initialize Auth
     await initAuth();
+
+    // 2. Initial Data Load
     refreshSignals('ALL');
     refreshAlerts();
     updateTelegramUI();
+    
+    // 3. Start Live Price Ticker (Runs every 10s)
+    updateTicker();
+    setInterval(updateTicker, 10000);
 
-    // UPDATED: Alert Creation Logic
+    // 4. Alert Creation Logic
     const form = document.getElementById('createAlertForm');
     if (form) {
         form.onsubmit = async (e) => {
@@ -250,6 +302,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         };
     }
 
+    // 5. Sidebar & Menu Logic
     const menuToggle = document.getElementById('menuToggle');
     const sidebar = document.querySelector('.sidebar');
     if (menuToggle && sidebar) {
@@ -264,7 +317,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // Sidebar Logic (Updates Description Inline)
+    // 6. Navigation Logic (Updates Description Inline)
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', function () {
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));

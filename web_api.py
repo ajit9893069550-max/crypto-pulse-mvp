@@ -3,6 +3,7 @@ import logging
 from flask import Flask, render_template, jsonify, request
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -71,15 +72,41 @@ def api_my_alerts():
 
 @app.route('/api/create-alert', methods=['POST'])
 def api_create_alert():
-    """Creates a new alert."""
+    """Creates a new alert with Smart Direction Logic."""
     try:
         data = request.json
+        asset = data.get('asset')
+        target_price = data.get('target_price')
+        signal_type = data.get('signal_type')
+
+        # --- SMART DIRECTION LOGIC ---
+        if signal_type == 'PRICE_TARGET' and target_price:
+            try:
+                # 1. Get Live Price from Binance Public API (Fast & Free)
+                symbol_clean = asset.replace('/', '') # Convert BTC/USDT -> BTCUSDT
+                url = f"https://data-api.binance.vision/api/v3/ticker/price?symbol={symbol_clean}"
+                price_res = requests.get(url, timeout=2).json()
+                current_price = float(price_res['price'])
+                target = float(target_price)
+
+                # 2. Determine Direction
+                # If Target (95k) > Current (91k) -> We wait for price to go ABOVE
+                if target > current_price:
+                    signal_type = "PRICE_TARGET_ABOVE"
+                # If Target (89k) < Current (91k) -> We wait for price to go BELOW
+                else:
+                    signal_type = "PRICE_TARGET_BELOW"
+            except Exception as e:
+                logger.error(f"Price fetch failed during creation: {e}")
+                # Fallback: keep 'PRICE_TARGET' (Logic in engine handles this as >=)
+
+        # 3. Save to Database
         response = supabase.table('alerts').insert({
             "user_id": data.get('user_id'),
-            "asset": data.get('asset'),
+            "asset": asset,
             "timeframe": data.get('timeframe'),
-            "alert_type": data.get('signal_type'),
-            "target_price": data.get('target_price'),
+            "alert_type": signal_type, # Now has _ABOVE or _BELOW suffix
+            "target_price": target_price,
             "status": "ACTIVE"
         }).execute()
         

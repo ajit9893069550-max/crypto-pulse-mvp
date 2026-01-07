@@ -124,16 +124,16 @@ body {
 
 /* This container holds the H2 and P tags */
 .section-header > div:first-child {
-    display: flex;             
-    align-items: baseline;     
-    flex-wrap: wrap;           
-    gap: 10px;                  /* Increased gap slightly */
+    display: flex;            
+    align-items: baseline;    
+    flex-wrap: wrap;          
+    gap: 10px;                 /* Increased gap slightly */
 }
 
 .section-header h2 { 
     margin: 0; 
     font-size: 1.5rem; 
-    white-space: nowrap;       
+    white-space: nowrap;      
 }
 
 #categoryDescription { 
@@ -259,4 +259,71 @@ select {
 /* Ensure row hover still looks good */
 .signal-row:hover .btn-view-chart {
     border-color: white; /* Highlights border on row hover */
+}
+
+/* --- LIVE TICKER STRIP --- */
+.ticker-container {
+    width: 100%;
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-color);
+    padding: 10px 20px;
+    white-space: nowrap;
+    overflow-x: auto;
+    display: flex;
+    gap: 25px;
+    align-items: center;
+    scrollbar-width: none; /* Hide scrollbar Firefox */
+}
+.ticker-container::-webkit-scrollbar { display: none; } /* Hide scrollbar Chrome */
+
+.ticker-item {
+    display: flex;
+    flex-direction: column;
+    font-size: 13px;
+    min-width: 100px;
+}
+
+.ticker-pair {
+    font-weight: 700;
+    color: var(--text-main);
+    font-size: 11px;
+    margin-bottom: 2px;
+}
+
+.ticker-price {
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-main);
+}
+
+.ticker-change {
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.ticker-up { color: var(--accent-green); }
+.ticker-down { color: var(--accent-red); }
+
+/* --- HEADER & TICKER ADJUSTMENTS (FIX GAP) --- */
+.header-group {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+/* Remove bottom space from the nav inside the group */
+.header-group .top-nav {
+    border-bottom: none !important;
+    margin-bottom: 0 !important;
+    padding-bottom: 5px !important;
+}
+
+/* Remove top space from ticker and remove its individual border */
+.header-group .ticker-container {
+    border-bottom: none !important;
+    margin-top: 0 !important;
+    padding-top: 5px !important;
+    background: transparent !important; /* Blends with header */
 }
