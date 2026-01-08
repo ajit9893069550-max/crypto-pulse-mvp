@@ -286,7 +286,8 @@ document.addEventListener('DOMContentLoaded', async () => {
                 asset: document.getElementById('alertAsset').value,
                 timeframe: document.getElementById('alertTimeframe').value,
                 signal_type: document.getElementById('alertType').value,
-                target_price: document.getElementById('alertPrice').value || null 
+                target_price: document.getElementById('alertPrice').value || null, 
+                is_recurring: document.getElementById('recurringAlert').checked
             };
 
             const res = await API.createAlert(payload);

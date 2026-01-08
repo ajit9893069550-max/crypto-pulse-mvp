@@ -159,41 +159,38 @@ async def check_alerts():
         user_id = alert['user_id']
         asset = alert['asset']
         alert_type = alert['alert_type']
+        is_recurring = alert.get('is_recurring', False)
+        last_triggered = alert.get('last_triggered_at')
         
-        # --- A. PRICE ALERTS (Smart Direction) ---
+        should_trigger = False
+        trigger_msg = ""
+        
+        # --- A. PRICE ALERTS ---
         if 'PRICE_TARGET' in alert_type:
+            # For Recurring Price alerts, we need a cooldown to prevent spam
+            # Logic: If triggered in the last 60 minutes, skip.
+            if is_recurring and last_triggered:
+                last_time = datetime.fromisoformat(last_triggered)
+                if (datetime.now(timezone.utc) - last_time).total_seconds() < 3600:
+                    continue # Skip if alerted recently
+
             target_price = float(alert.get('target_price', 0))
             current_price = await get_live_price(asset)
             
-            if not current_price: continue
-            
-            triggered = False
-            
-            # Case 1: Waiting for Pump (Target > Old Price)
-            if alert_type == 'PRICE_TARGET_ABOVE' and current_price >= target_price:
-                triggered = True
-                
-            # Case 2: Waiting for Dump (Target < Old Price)
-            # This handles your "BTC drops to 88k" case
-            elif alert_type == 'PRICE_TARGET_BELOW' and current_price <= target_price:
-                triggered = True
-                
-            # Case 3: Fallback (Legacy)
-            elif alert_type == 'PRICE_TARGET' and current_price >= target_price:
-                triggered = True
-
-            if triggered:
-                # Send Message
-                emoji = "📈" if "ABOVE" in alert_type else "📉"
-                msg = f"{emoji} <b>PRICE ALERT:</b>\n#{asset} reached <b>${current_price}</b>\n(Target: ${target_price})"
-                await send_telegram_message(user_id, msg)
-                
-                # Delete Alert
-                supabase.table('alerts').delete().eq('id', alert['id']).execute()
+            if current_price:
+                if (alert_type == 'PRICE_TARGET_ABOVE' and current_price >= target_price) or \
+                   (alert_type == 'PRICE_TARGET_BELOW' and current_price <= target_price) or \
+                   (alert_type == 'PRICE_TARGET' and current_price >= target_price):
+                    
+                    emoji = "📈" if "ABOVE" in alert_type else "📉"
+                    trigger_msg = f"{emoji} <b>PRICE ALERT:</b>\n#{asset} reached <b>${current_price}</b>\n(Target: ${target_price})"
+                    should_trigger = True
         
         # --- B. TECHNICAL ALERTS ---
         else:
+            # Look for signals in the last 15 minutes
             fifteen_mins_ago = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
+            
             try:
                 scan_res = supabase.table('market_scans')\
                     .select("*")\
@@ -204,10 +201,35 @@ async def check_alerts():
                     .execute()
                 
                 if scan_res.data:
-                    msg = f"🚀 <b>SIGNAL ALERT:</b>\n#{asset} ({alert['timeframe']})\n<b>{alert_type.replace('_', ' ')}</b> detected!"
-                    await send_telegram_message(user_id, msg)
+                    newest_signal = scan_res.data[0] # Get the most recent one
+                    signal_time = datetime.fromisoformat(newest_signal['detected_at'])
+
+                    # SMART LOGIC: 
+                    # If recurring, only fire if this signal is NEWER than the last time we fired
+                    if is_recurring and last_triggered:
+                        last_alert_time = datetime.fromisoformat(last_triggered)
+                        if signal_time <= last_alert_time:
+                            continue # We already alerted for this specific signal
+
+                    trigger_msg = f"🚀 <b>SIGNAL ALERT:</b>\n#{asset} ({alert['timeframe']})\n<b>{alert_type.replace('_', ' ')}</b> detected!"
+                    should_trigger = True
+                    
             except Exception as e:
                 logger.error(f"Error checking signals: {e}")
+
+        # --- EXECUTE TRIGGER ---
+        if should_trigger:
+            await send_telegram_message(user_id, trigger_msg)
+            
+            if is_recurring:
+                # Update 'last_triggered_at' so we don't spam
+                now_iso = datetime.now(timezone.utc).isoformat()
+                supabase.table('alerts').update({'last_triggered_at': now_iso}).eq('id', alert['id']).execute()
+                logger.info(f"🔄 Recurring Alert Updated: {asset} {alert_type}")
+            else:
+                # Delete One-Time Alert
+                supabase.table('alerts').delete().eq('id', alert['id']).execute()
+                logger.info(f"🗑️ One-Time Alert Deleted: {asset} {alert_type}")
 
 async def close_exchange():
     if exchange:
