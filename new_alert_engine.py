@@ -35,18 +35,21 @@ exchange.urls['api']['public'] = 'https://data-api.binance.vision/api/v3'
 
 # --- HELPER FUNCTIONS ---
 
-async def send_telegram_message(user_id, message):
+async def send_telegram_message(chat_id, message):
     """Sends a message to the user via Telegram."""
-    if not user_id or not BOT_TOKEN:
+    if not chat_id or not BOT_TOKEN:
+        logger.error("❌ Missing Chat ID or Bot Token")
         return
     
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     async with aiohttp.ClientSession() as session:
-        payload = {"chat_id": user_id, "text": message, "parse_mode": "HTML"}
+        payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
         try:
             async with session.post(url, json=payload) as resp:
                 if resp.status != 200:
                     logger.error(f"Failed to send TG message: {await resp.text()}")
+                else:
+                    logger.info(f"✅ Message sent to {chat_id}")
         except Exception as e:
             logger.error(f"Telegram Error: {e}")
 
@@ -156,23 +159,34 @@ async def check_alerts():
     if not alerts: return
 
     for alert in alerts:
-        user_id = alert['user_id']
+        user_uuid = alert['user_id'] # This is the UUID
         asset = alert['asset']
         alert_type = alert['alert_type']
         is_recurring = alert.get('is_recurring', False)
         last_triggered = alert.get('last_triggered_at')
-        
+
+        # --- FIX: LOOK UP TELEGRAM CHAT ID ---
+        try:
+            user_res = supabase.table('users').select('telegram_chat_id').eq('user_uuid', user_uuid).execute()
+            if not user_res.data or not user_res.data[0].get('telegram_chat_id'):
+                # Skip if no Telegram linked
+                continue
+            
+            chat_id = user_res.data[0]['telegram_chat_id']
+        except Exception as e:
+            logger.error(f"Failed to resolve chat ID for {user_uuid}: {e}")
+            continue
+
         should_trigger = False
         trigger_msg = ""
         
         # --- A. PRICE ALERTS ---
         if 'PRICE_TARGET' in alert_type:
-            # For Recurring Price alerts, we need a cooldown to prevent spam
-            # Logic: If triggered in the last 60 minutes, skip.
+            # Recurring Cooldown (1 Hour)
             if is_recurring and last_triggered:
                 last_time = datetime.fromisoformat(last_triggered)
                 if (datetime.now(timezone.utc) - last_time).total_seconds() < 3600:
-                    continue # Skip if alerted recently
+                    continue 
 
             target_price = float(alert.get('target_price', 0))
             current_price = await get_live_price(asset)
@@ -188,9 +202,7 @@ async def check_alerts():
         
         # --- B. TECHNICAL ALERTS ---
         else:
-            # Look for signals in the last 15 minutes
             fifteen_mins_ago = (datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat()
-            
             try:
                 scan_res = supabase.table('market_scans')\
                     .select("*")\
@@ -201,33 +213,29 @@ async def check_alerts():
                     .execute()
                 
                 if scan_res.data:
-                    newest_signal = scan_res.data[0] # Get the most recent one
-                    signal_time = datetime.fromisoformat(newest_signal['detected_at'])
-
-                    # SMART LOGIC: 
-                    # If recurring, only fire if this signal is NEWER than the last time we fired
+                    # Recurring Logic: Check if new signal is fresher than last trigger
                     if is_recurring and last_triggered:
+                        newest_signal = scan_res.data[0]
+                        signal_time = datetime.fromisoformat(newest_signal['detected_at'])
                         last_alert_time = datetime.fromisoformat(last_triggered)
+                        
                         if signal_time <= last_alert_time:
-                            continue # We already alerted for this specific signal
+                            continue # Old signal
 
                     trigger_msg = f"🚀 <b>SIGNAL ALERT:</b>\n#{asset} ({alert['timeframe']})\n<b>{alert_type.replace('_', ' ')}</b> detected!"
                     should_trigger = True
-                    
             except Exception as e:
                 logger.error(f"Error checking signals: {e}")
 
         # --- EXECUTE TRIGGER ---
         if should_trigger:
-            await send_telegram_message(user_id, trigger_msg)
+            await send_telegram_message(chat_id, trigger_msg) # Sending to Correct Chat ID now
             
             if is_recurring:
-                # Update 'last_triggered_at' so we don't spam
                 now_iso = datetime.now(timezone.utc).isoformat()
                 supabase.table('alerts').update({'last_triggered_at': now_iso}).eq('id', alert['id']).execute()
                 logger.info(f"🔄 Recurring Alert Updated: {asset} {alert_type}")
             else:
-                # Delete One-Time Alert
                 supabase.table('alerts').delete().eq('id', alert['id']).execute()
                 logger.info(f"🗑️ One-Time Alert Deleted: {asset} {alert_type}")
 
