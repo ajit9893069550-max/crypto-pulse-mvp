@@ -168,12 +168,12 @@ async def check_alerts():
 
         should_trigger = False
         trigger_msg = ""
-        
+        trigger_timestamp = datetime.now(timezone.utc).isoformat()
+
         # --- A. PRICE ALERTS ---
         if 'PRICE_TARGET' in alert_type:
             if is_recurring and last_triggered:
                 last_time = datetime.fromisoformat(last_triggered)
-                # 1 Hour Cooldown for Price Alerts
                 if (datetime.now(timezone.utc) - last_time).total_seconds() < 3600:
                     continue 
 
@@ -191,14 +191,16 @@ async def check_alerts():
         
         # --- B. TECHNICAL ALERTS ---
         else:
-            # FIX: Look back 24 hours to catch candle Open Times
             lookback_time = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
             
+            # --- CRITICAL FIX: CLEAN THE ASSET NAME ---
+            # DB stores "BTC", but Alert has "BTC/USDT"
+            search_asset = asset.replace('/USDT', '') 
+            
             try:
-                # FIX: Order by newest first
                 scan_res = supabase.table('market_scans')\
                     .select("*")\
-                    .eq('asset', asset)\
+                    .eq('asset', search_asset)\
                     .eq('timeframe', alert['timeframe'])\
                     .eq('signal_type', alert_type)\
                     .gte('detected_at', lookback_time)\
@@ -208,12 +210,12 @@ async def check_alerts():
                 if scan_res.data:
                     newest_signal = scan_res.data[0]
                     signal_time = datetime.fromisoformat(newest_signal['detected_at'])
+                    trigger_timestamp = newest_signal['detected_at']
 
-                    # RECURRING CHECK: Only fire if we found a NEW signal
                     if is_recurring and last_triggered:
                         last_alert_time = datetime.fromisoformat(last_triggered)
                         if signal_time <= last_alert_time:
-                            continue # We already alerted for this one
+                            continue 
 
                     trigger_msg = f"🚀 <b>SIGNAL ALERT:</b>\n#{asset} ({alert['timeframe']})\n<b>{alert_type.replace('_', ' ')}</b> detected!"
                     should_trigger = True
@@ -225,8 +227,7 @@ async def check_alerts():
             await send_telegram_message(chat_id, trigger_msg)
             
             if is_recurring:
-                now_iso = datetime.now(timezone.utc).isoformat()
-                supabase.table('alerts').update({'last_triggered_at': now_iso}).eq('id', alert['id']).execute()
+                supabase.table('alerts').update({'last_triggered_at': trigger_timestamp}).eq('id', alert['id']).execute()
                 logger.info(f"🔄 Recurring Alert Updated: {asset} {alert_type}")
             else:
                 supabase.table('alerts').delete().eq('id', alert['id']).execute()
