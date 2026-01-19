@@ -127,7 +127,7 @@ body {
     display: flex;            
     align-items: baseline;    
     flex-wrap: wrap;          
-    gap: 10px;                 /* Increased gap slightly */
+    gap: 10px;                
 }
 
 .section-header h2 { 
@@ -139,11 +139,11 @@ body {
 #categoryDescription { 
     display: block !important; 
     margin: 0;
-    color: var(--text-main);   /* CHANGED: Now White (was gray/dim) */
-    font-size: 15px;           /* CHANGED: Increased size (was 13px) */
-    font-weight: 500;          /* CHANGED: Slightly bolder */
+    color: var(--text-main);   
+    font-size: 15px;           
+    font-weight: 500;          
     line-height: 1.5;
-    opacity: 0.9;              /* Slight transparency for elegance */
+    opacity: 0.9;              
 }
 /* Table Container (Scrollable) */
 .table-container {
@@ -202,10 +202,31 @@ select {
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
 /* Badges */
-.new-tag { background-color: var(--accent-green) !important; color: #000 !important; font-size: 9px; font-weight: 900; padding: 2px 5px; border-radius: 3px; margin-left: 5px; }
+/* UPDATED: Added specific style for the 'NEW' badge in strategies */
+.badge-new { 
+    background-color: var(--accent-green) !important; 
+    color: #000 !important; 
+    font-size: 9px; 
+    font-weight: 900; 
+    padding: 2px 5px; 
+    border-radius: 3px; 
+    margin-left: 5px; 
+    vertical-align: middle;
+}
+
 .tf-badge { padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: 800; background: rgba(128, 128, 128, 0.1); border: 1px solid var(--border-color); }
 .nav-item { padding: 14px 20px; color: var(--text-dim); cursor: pointer; font-size: 13px; border-left: 3px solid transparent; transition: 0.2s ease; }
 .nav-item.active { background-color: rgba(0, 255, 136, 0.05); color: var(--accent-green); border-left: 3px solid var(--accent-green); }
+
+/* --- NEW: STRATEGY LOGIC BOXES --- */
+.logic-box {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    font-size: 0.9em;
+    color: var(--text-main);
+}
 
 /* Auth Link */
 #authStatusLink a { color: var(--text-main); text-decoration: none; font-weight: 600; font-size: 14px; margin-left: 15px; }

@@ -60,5 +60,13 @@ const API = {
             const data = await res.json();
             return data.linked;
         } catch (e) { return false; }
+    },
+
+    // --- ADDED THIS FUNCTION TO FIX THE ERROR ---
+    async getStrategies() {
+        try {
+            const res = await fetch('/api/strategies');
+            return await res.json();
+        } catch (e) { return []; }
     }
 };

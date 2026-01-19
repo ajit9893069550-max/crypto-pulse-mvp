@@ -1,6 +1,6 @@
 /**
  * UI.JS - Handles Dashboard, Charts, Audio & Live Ticker
- * (Final Version: Includes Inline Descriptions, Smart Charts & Price Ticker)
+ * (Final Version: Includes Inline Descriptions, Smart Charts, Price Ticker & Strategies)
  */
 
 // --- 1. CONFIGURATION & DEFINITIONS ---
@@ -22,7 +22,10 @@ const SIGNAL_DEFINITIONS = {
     // Oscillators
     'RSI_OVERSOLD': "RSI is below 30. Asset is undervalued.",
     'RSI_OVERBOUGHT': "RSI is above 70. Asset is overvalued.",
-    'MACD_BULL_CROSS': "Momentum shifting to bullish."
+    'MACD_BULL_CROSS': "Momentum shifting to bullish.",
+
+    // Strategies
+    'STRATEGY_UNLOCK_SHORT': "Unlock Strategy: High inflation token + BB Rejection.",
 };
 
 const STUDY_MAP = {
@@ -35,7 +38,8 @@ const STUDY_MAP = {
     'DEATH_CROSS':         ['MASimple@tv-basicstudies', 'MASimple@tv-basicstudies'],
     'SNIPER_BUY_REVERSAL': ['RSI@tv-basicstudies', 'BB@tv-basicstudies'],
     'SNIPER_SELL_REJECTION':['RSI@tv-basicstudies', 'BB@tv-basicstudies'],
-    'MOMENTUM_BREAKOUT':   ['MACD@tv-basicstudies']
+    'MOMENTUM_BREAKOUT':   ['MACD@tv-basicstudies'],
+    'STRATEGY_UNLOCK_SHORT': ['BB@tv-basicstudies'] // Added BB for the strategy chart
 };
 
 const TF_MAP = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D' };
@@ -110,7 +114,8 @@ function cleanSignalName(name, price = null) {
         'RSI_OVERBOUGHT': '📈 RSI Overbought',
         'BB_SQUEEZE': '🤐 Volatility Squeeze',
         'VOLUME_SURGE': '📊 Volume Surge',
-        'MACD_BULL_CROSS': '🟢 MACD Bull Cross'
+        'MACD_BULL_CROSS': '🟢 MACD Bull Cross',
+        'STRATEGY_UNLOCK_SHORT': '🧠 Unlock Short' // Nice display name
     };
     return map[name] || name.replace(/_/g, ' ');
 }
@@ -219,6 +224,151 @@ async function updateTelegramUI() {
     }
 }
 
+// --- NEW: STRATEGY RENDERER ---
+// --- NEW: STRATEGY RENDERER (Updated to show LIVE SIGNALS) ---
+async function refreshStrategies() {
+    const container = document.getElementById('strategiesContainer');
+    if (!container) return; 
+
+    container.innerHTML = '<div class="loader"></div> Loading Strategy Data...';
+    
+    // 1. Fetch Static Strategy Info & Backtests
+    const strategies = await API.getStrategies();
+
+    // 2. Fetch LIVE Signals specifically for this strategy
+    // (We hardcode the type here because it matches the Python signal name)
+    const liveSignals = await API.getSignals('STRATEGY_UNLOCK_SHORT');
+
+    if (!strategies.length) {
+        container.innerHTML = '<p style="text-align:center;">No strategies available yet.</p>';
+        return;
+    }
+
+    // 3. Build the Live Signals HTML
+    let liveSignalsHtml = '';
+    if (liveSignals.length > 0) {
+        const rows = liveSignals.map(s => {
+            const relativeTime = timeAgo(s.detected_at);
+            const cleanName = cleanSignalName(s.signal_type);
+            const assetName = s.asset.replace('/USDT', '');
+            
+            return `
+            <tr class="signal-row" onclick="openChart('${assetName}', '${s.timeframe}', '${s.signal_type}')" style="background: rgba(0, 255, 136, 0.05);">
+                <td style="font-weight:bold; padding:12px;">${assetName}</td>
+                <td><span class="tf-badge">${s.timeframe}</span></td>
+                <td class="text-danger">SHORT SIGNAL</td> 
+                <td style="color:var(--text-dim); font-size:12px;">${relativeTime}</td>
+                <td style="text-align: right;"><button class="btn-view-chart">View Chart</button></td>
+            </tr>`;
+        }).join('');
+
+        liveSignalsHtml = `
+            <div style="margin-bottom: 30px; border: 1px solid var(--accent-green); border-radius: 12px; overflow: hidden;">
+                <div style="background: rgba(0, 255, 136, 0.1); padding: 15px; border-bottom: 1px solid var(--accent-green); display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin:0; color: var(--accent-green); font-size: 16px;">⚡ Active Strategy Signals</h3>
+                    <span class="update-tag" style="background: var(--accent-green); color: black; font-weight: bold;">LIVE</span>
+                </div>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>
+        `;
+    } else {
+        liveSignalsHtml = `
+            <div style="margin-bottom: 30px; padding: 20px; text-align: center; border: 1px dashed var(--border-color); border-radius: 12px; color: var(--text-dim);">
+                No active signals for this strategy right now.<br>
+                <small>Scanning 4H candles for BB Rejections...</small>
+            </div>
+        `;
+    }
+
+    // 4. Render everything
+    container.innerHTML = strategies.map(strat => {
+        const logic = strat.logic_summary || {};
+        
+        // Build Performance Table Rows
+        const perfRows = strat.performance && strat.performance.length > 0 
+            ? strat.performance.map(p => `
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                    <td style="padding:10px;"><strong>${p.asset}</strong></td>
+                    <td>${p.total_trades}</td>
+                    <td class="${p.win_rate_percent >= 50 ? 'text-success' : 'text-danger'}">${p.win_rate_percent}%</td>
+                    <td class="${p.total_pnl_percent >= 0 ? 'text-success' : 'text-danger'}">${p.total_pnl_percent > 0 ? '+' : ''}${p.total_pnl_percent}%</td>
+                    <td style="color: #ff6b6b;">-${p.max_drawdown_percent}%</td>
+                </tr>
+            `).join('')
+            : '<tr><td colspan="5" style="text-align:center; padding:10px;">No backtest data available yet.</td></tr>';
+
+        return `
+        ${liveSignalsHtml}
+
+        <div style="background: var(--card-bg); border-radius: 12px; padding: 24px; margin-bottom: 30px; border: 1px solid var(--border-color);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
+                <h2 style="color: var(--accent-color); margin:0; font-size: 1.5rem;">${strat.name}</h2>
+                <span style="background: #ff4757; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">Risk: ${strat.risk_profile}</span>
+            </div>
+            
+            <p style="color: var(--text-dim); line-height: 1.5;">${strat.description}</p>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 25px 0;">
+                <div class="logic-box"><strong>🎯 Trigger</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Trigger || 'N/A'}</span></div>
+                <div class="logic-box"><strong>🛑 Filter</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Filter || 'N/A'}</span></div>
+                <div class="logic-box"><strong>⏳ Window</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Window || 'N/A'}</span></div>
+                <div class="logic-box"><strong>🚪 Exit</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Exit || 'N/A'}</span></div>
+            </div>
+
+            <h3 style="margin-top: 30px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; font-size: 1.2rem;">📊 Backtest Performance (2 Years)</h3>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.95em;">
+                    <thead>
+                        <tr style="text-align: left; color: var(--text-dim);">
+                            <th style="padding: 10px;">Asset</th>
+                            <th style="padding: 10px;">Trades</th>
+                            <th style="padding: 10px;">Win Rate</th>
+                            <th style="padding: 10px;">Total PnL</th>
+                            <th style="padding: 10px;">Max DD</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${perfRows}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        `;
+    }).join('');
+}
+// --- NEW: VIEW NAVIGATION ---
+function showSection(sectionId) {
+    // 1. Get the containers
+    const dashboardDiv = document.getElementById('dashboardSection');
+    const strategiesDiv = document.getElementById('strategiesSection');
+
+    // 2. Reset Sidebar Active States
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+
+    // 3. Switch Logic
+    if (sectionId === 'strategies') {
+        if(dashboardDiv) dashboardDiv.style.display = 'none';
+        if(strategiesDiv) strategiesDiv.style.display = 'block';
+        
+        refreshStrategies();
+        
+        // Highlight strategy menu item
+        if (event && event.currentTarget) {
+            event.currentTarget.classList.add('active');
+        }
+    } else {
+        if(dashboardDiv) dashboardDiv.style.display = 'block';
+        if(strategiesDiv) strategiesDiv.style.display = 'none';
+
+        // Highlight dashboard menu item
+        if (event && event.currentTarget) {
+            event.currentTarget.classList.add('active');
+        }
+    }
+}
+
 // --- 6. CHART MODAL ---
 function openChart(symbol, timeframe = '1h', signalType = 'NONE') {
     const modal = document.getElementById('chartModal');
@@ -320,11 +470,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 6. Navigation Logic (Updates Description Inline)
     document.querySelectorAll('.nav-item').forEach(item => {
-        item.addEventListener('click', function () {
+        item.addEventListener('click', function (e) {
+            const categoryType = this.getAttribute('data-type');
+            
+            // If this is the Strategy view, ignore standard signal refresh
+            if (categoryType === 'STRATEGY_VIEW') return;
+            
+            // Otherwise, it's a standard Dashboard filter
+            showSection('dashboard'); 
+
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
             this.classList.add('active');
-            
-            const categoryType = this.getAttribute('data-type');
             
             const title = document.getElementById('currentCategoryTitle');
             if (title) title.innerText = this.innerText;

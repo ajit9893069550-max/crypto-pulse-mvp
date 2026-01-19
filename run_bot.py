@@ -7,7 +7,8 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
-# Logic imports (Added check_alerts here)
+# Logic imports
+from strategy_engine import run_unlock_strategy, close_strategy_engine
 from new_alert_engine import analyze_asset, check_alerts, close_exchange
 
 load_dotenv()
@@ -25,7 +26,7 @@ if not all([SUPABASE_URL, SUPABASE_KEY, TELEGRAM_BOT_TOKEN]):
     exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-# Symbols to scan
+# Symbols to scan (Standard)
 SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'BNB/USDT', 'DOGE/USDT'] 
 TIMEFRAMES = ['15m', '1h', '4h']
 
@@ -63,8 +64,8 @@ async def alert_loop():
     while True:
         try:
             # This function (from new_alert_engine.py) handles:
-            # A. Checking Live Price vs Target Price (and sending alerts)
-            # B. Checking Database for new Technical Signals (and sending alerts)
+            # A. Checking Live Price vs Target Price
+            # B. Checking Database for new Technical Signals
             await check_alerts()
             
         except Exception as e:
@@ -117,7 +118,41 @@ async def scanner_loop():
             await asyncio.sleep(60)
 
 # ==========================================================
-# 4. MAIN ENTRY POINT
+# 4. STRATEGY ENGINE (Runs Every Hour at XX:02)
+# ==========================================================
+async def strategy_loop():
+    """Runs complex strategies every hour at minute 02 (e.g., 09:02, 10:02)."""
+    logger.info("♟️ Strategy Engine Started (Aligned to XX:02)...")
+    
+    while True:
+        try:
+            # 1. Calculate time until next XX:02
+            now = datetime.now()
+            
+            # Target time is the 2nd minute of the current hour
+            target_time = now.replace(minute=2, second=0, microsecond=0)
+            
+            # If we are already past XX:02 today, move to next hour
+            if now >= target_time:
+                target_time += timedelta(hours=1)
+                
+            wait_seconds = (target_time - now).total_seconds()
+            
+            logger.info(f"♟️ Strategy sleeping {int(wait_seconds)}s until {target_time.strftime('%H:%M')}...")
+            await asyncio.sleep(wait_seconds)
+            
+            # 2. Run the Strategy
+            await run_unlock_strategy()
+            
+            # 3. Buffer to ensure we don't double-trigger (sleep 60s)
+            await asyncio.sleep(60)
+
+        except Exception as e:
+            logger.error(f"Strategy Loop Error: {e}")
+            await asyncio.sleep(60)
+
+# ==========================================================
+# 5. MAIN ENTRY POINT
 # ==========================================================
 async def main():
     # Setup Telegram Bot Listener
@@ -129,21 +164,23 @@ async def main():
     await application.updater.start_polling()
     logger.info("✅ Telegram Bot Listener Active.")
 
-    # Run Scanner & Alerter Concurrently
+    # Run Scanner, Alerter, and Strategy Engine Concurrently
     try:
         await asyncio.gather(
-            scanner_loop(), # The 15-minute Technical Scan
-            alert_loop()    # The 60-second Alert/Price Check
+            scanner_loop(),  # The 15-minute Technical Scan
+            alert_loop(),    # The 60-second Alert/Price Check
+            strategy_loop()  # The Hourly Strategy Check
         )
     except Exception as e:
         logger.error(f"Global Crash: {e}")
     finally:
         await application.stop()
         await close_exchange()
+        await close_strategy_engine()
 
 if __name__ == "__main__":
     try:
-        # Windows Loop Policy Fix
+        # Windows Loop Policy Fix (For Local Testing)
         if os.name == 'nt':
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
             

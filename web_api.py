@@ -136,6 +136,28 @@ def api_telegram_status():
         pass
     return jsonify({"linked": False})
 
+# --- NEW ROUTE: STRATEGIES ---
+@app.route('/api/strategies')
+def api_strategies():
+    """Returns all strategies with their performance data."""
+    try:
+        # 1. Fetch Strategies
+        strategies_res = supabase.table('strategies').select("*").execute()
+        strategies = strategies_res.data
+
+        # 2. Fetch Performance Data for each strategy
+        for strat in strategies:
+            perf_res = supabase.table('strategy_performance')\
+                .select("*")\
+                .eq('strategy_id', strat['id'])\
+                .execute()
+            strat['performance'] = perf_res.data
+
+        return jsonify(strategies)
+    except Exception as e:
+        logger.error(f"Strategy API Error: {e}")
+        return jsonify([])
+
 # ==============================================================================
 #  FRONTEND SERVING (Catch-All)
 # ==============================================================================
