@@ -1,6 +1,5 @@
 /**
- * UI.JS - Handles Dashboard, Charts, Audio & Live Ticker
- * (Final Version: Includes Inline Descriptions, Smart Charts, Price Ticker & Strategies)
+ * UI.JS - Handles Dashboard, Charts, Audio, Live Ticker & Bulk Alerts
  */
 
 // --- 1. CONFIGURATION & DEFINITIONS ---
@@ -39,7 +38,7 @@ const STUDY_MAP = {
     'SNIPER_BUY_REVERSAL': ['RSI@tv-basicstudies', 'BB@tv-basicstudies'],
     'SNIPER_SELL_REJECTION':['RSI@tv-basicstudies', 'BB@tv-basicstudies'],
     'MOMENTUM_BREAKOUT':   ['MACD@tv-basicstudies'],
-    'STRATEGY_UNLOCK_SHORT': ['BB@tv-basicstudies'] // Added BB for the strategy chart
+    'STRATEGY_UNLOCK_SHORT': ['BB@tv-basicstudies'] 
 };
 
 const TF_MAP = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D' };
@@ -50,14 +49,10 @@ async function updateTicker() {
     if (!container) return;
 
     try {
-        // Fetch 24hr stats for ALL symbols (Public API)
         const res = await fetch('https://data-api.binance.vision/api/v3/ticker/24hr');
         const data = await res.json();
-
-        // Filter only our coins
         const relevantData = data.filter(item => WATCHLIST.includes(item.symbol));
 
-        // Build HTML
         container.innerHTML = relevantData.map(item => {
             const asset = item.symbol.replace('USDT', '');
             const price = parseFloat(item.lastPrice);
@@ -97,7 +92,6 @@ function timeAgo(dateString) {
 }
 
 function cleanSignalName(name, price = null) {
-    // If it's a price alert, format it nicely
     if (name.includes('PRICE_TARGET') && price) {
         const direction = name.includes('ABOVE') ? ' (Above)' : name.includes('BELOW') ? ' (Below)' : '';
         return `💰 Target: $${price}${direction}`;
@@ -115,7 +109,7 @@ function cleanSignalName(name, price = null) {
         'BB_SQUEEZE': '🤐 Volatility Squeeze',
         'VOLUME_SURGE': '📊 Volume Surge',
         'MACD_BULL_CROSS': '🟢 MACD Bull Cross',
-        'STRATEGY_UNLOCK_SHORT': '🧠 Unlock Short' // Nice display name
+        'STRATEGY_UNLOCK_SHORT': '🧠 Unlock Short'
     };
     return map[name] || name.replace(/_/g, ' ');
 }
@@ -126,21 +120,160 @@ function copyToClipboard(text) {
     });
 }
 
-// --- 4. TOGGLE FUNCTION (For Price Alert Input) ---
-function togglePriceInput() {
-    const type = document.getElementById('alertType').value;
-    const inputGroup = document.getElementById('priceInputGroup');
-    const priceInput = document.getElementById('alertPrice');
+// --- 4. BULK ALERT CREATION LOGIC (NEW) ---
+
+// --- 4. BULK ALERT CREATION LOGIC (NEW) ---
+
+function openCreateAlertModal() {
+    const modal = document.getElementById('chartModal'); 
+    const content = document.getElementById('tv_chart_container');
+    const title = document.getElementById('modalTitle');
     
-    if (type === 'PRICE_TARGET') {
-        inputGroup.style.display = 'block';
-        priceInput.required = true;
-        priceInput.focus();
+    if(title) title.innerText = "🔔 Create Bulk Alerts";
+
+    // 1. Define Options
+    const coins = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'BNB/USDT', 'DOGE/USDT', 'ENA/USDT', 'STRK/USDT', 'ZK/USDT', 'PIXEL/USDT'];
+    const timeframes = ['15m', '1h', '4h'];
+    
+    // UPDATED SIGNALS LIST (Added Death Cross)
+    const signals = [
+        {val: 'PRICE_TARGET', label: 'Price Target (Exact)'},
+        {val: 'GOLDEN_CROSS', label: 'Golden Cross (Bullish)'},
+        {val: 'DEATH_CROSS', label: 'Death Cross (Bearish)'}, // <--- ADDED THIS
+        {val: 'RSI_OVERSOLD', label: 'RSI Oversold (<30)'},
+        {val: 'RSI_OVERBOUGHT', label: 'RSI Overbought (>70)'},
+        {val: 'VOLATILITY_SQUEEZE', label: 'Volatility Squeeze'},
+        {val: 'STRATEGY_UNLOCK_SHORT', label: 'Unlock Strategy Short'}
+    ];
+
+    // 2. Build HTML
+    const coinCheckboxes = coins.map(c => `
+        <label style="display:inline-block; width:45%; margin-bottom:8px; cursor:pointer;">
+            <input type="checkbox" class="bulk-asset" value="${c}" checked> 
+            <span style="margin-left:5px; font-weight:bold;">${c.replace('/USDT','')}</span>
+        </label>
+    `).join('');
+
+    const tfCheckboxes = timeframes.map(tf => `
+        <label style="display:inline-block; width:30%; margin-bottom:8px; cursor:pointer;">
+            <input type="checkbox" class="bulk-tf" value="${tf}" checked> 
+            <span style="margin-left:5px;">${tf}</span>
+        </label>
+    `).join('');
+
+    const signalOptions = signals.map(s => `<option value="${s.val}">${s.label}</option>`).join('');
+
+    content.innerHTML = `
+        <div style="padding: 20px; color: var(--text-main);">
+            <div style="margin-bottom: 20px;">
+                <label style="color:var(--text-dim); font-size:12px; text-transform:uppercase; display:block; margin-bottom:10px;">1. Select Assets</label>
+                <div style="max-height: 150px; overflow-y: auto; background: rgba(0,0,0,0.2); padding: 10px; border: 1px solid var(--border-color); border-radius: 8px;">
+                    ${coinCheckboxes}
+                </div>
+                <div style="margin-top:5px; font-size:11px;">
+                    <a href="#" onclick="document.querySelectorAll('.bulk-asset').forEach(c => c.checked=true); return false;" style="color:var(--accent-blue);">Select All</a> | 
+                    <a href="#" onclick="document.querySelectorAll('.bulk-asset').forEach(c => c.checked=false); return false;" style="color:var(--text-dim);">Clear</a>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <label style="color:var(--text-dim); font-size:12px; text-transform:uppercase; display:block; margin-bottom:10px;">2. Select Timeframes</label>
+                <div>${tfCheckboxes}</div>
+            </div>
+
+            <div class="input-group" style="margin-bottom: 20px;">
+                <label>3. Trigger Condition</label>
+                <select id="newAlertSignal" onchange="toggleBulkPriceInput(this.value)" style="width:100%; padding:10px;">
+                    ${signalOptions}
+                </select>
+            </div>
+
+            <div id="bulkPriceGroup" class="input-group" style="margin-bottom: 20px;">
+                <label>Target Price ($)</label>
+                <input type="number" id="newAlertPrice" placeholder="e.g. 65000" step="any" style="width:100%; padding:12px; background:var(--bg-dark); border:1px solid var(--border-color); color:white; border-radius:8px;">
+            </div>
+
+            <div style="margin-bottom: 25px;">
+                <label style="cursor:pointer; display:flex; align-items:center;">
+                    <input type="checkbox" id="newAlertRecurring">
+                    <span style="margin-left: 10px; color: var(--text-dim);">Recurring Alert</span>
+                </label>
+            </div>
+
+            <div style="display: flex; gap: 10px;">
+                <button onclick="closeModal()" style="flex:1; padding: 12px; background: transparent; border: 1px solid var(--border-color); color: var(--text-dim); border-radius: 8px; cursor: pointer;">Cancel</button>
+                <button id="btnSaveAlert" onclick="submitBulkAlerts()" class="btn-create" style="flex:2;">Create Alerts</button>
+            </div>
+            
+            <div id="bulkProgress" style="margin-top:15px; text-align:center; color:var(--accent-green); font-size:13px; display:none;"></div>
+        </div>
+    `;
+
+    modal.style.display = 'flex';
+    toggleBulkPriceInput('PRICE_TARGET'); 
+}
+
+function toggleBulkPriceInput(val) {
+    const el = document.getElementById('bulkPriceGroup');
+    if (val === 'PRICE_TARGET') {
+        el.style.display = 'block';
     } else {
-        inputGroup.style.display = 'none';
-        priceInput.required = false;
-        priceInput.value = '';
+        el.style.display = 'none';
     }
+}
+
+async function submitBulkAlerts() {
+    const btn = document.getElementById('btnSaveAlert');
+    const progress = document.getElementById('bulkProgress');
+    
+    // Gather Data
+    const selectedAssets = Array.from(document.querySelectorAll('.bulk-asset:checked')).map(c => c.value);
+    const selectedTFs = Array.from(document.querySelectorAll('.bulk-tf:checked')).map(c => c.value);
+    const signalType = document.getElementById('newAlertSignal').value;
+    const targetPrice = document.getElementById('newAlertPrice').value;
+    const isRecurring = document.getElementById('newAlertRecurring').checked;
+
+    // Validate
+    if (selectedAssets.length === 0 || selectedTFs.length === 0) {
+        alert("Please select at least one Asset and one Timeframe.");
+        return;
+    }
+    if (signalType === 'PRICE_TARGET' && !targetPrice) {
+        alert("Please enter a Target Price.");
+        return;
+    }
+
+    // UI Updates
+    btn.disabled = true;
+    btn.innerText = "Processing...";
+    progress.style.display = 'block';
+
+    let successCount = 0;
+    const total = selectedAssets.length * selectedTFs.length;
+
+    // Loop
+    for (const asset of selectedAssets) {
+        for (const tf of selectedTFs) {
+            progress.innerText = `Creating alert for ${asset} (${tf})...`;
+            
+            const payload = {
+                asset: asset,
+                timeframe: tf,
+                signal_type: signalType,
+                target_price: targetPrice || null,
+                is_recurring: isRecurring
+            };
+
+            const res = await API.createAlert(payload);
+            if (res.success) successCount++;
+        }
+    }
+
+    progress.innerText = `✅ Created ${successCount} of ${total} alerts successfully!`;
+    setTimeout(() => {
+        closeModal();
+        refreshAlerts(); // Update the sidebar list
+    }, 1500);
 }
 
 // --- 5. CORE RENDER FUNCTIONS ---
@@ -157,7 +290,6 @@ async function refreshSignals(type) {
         return;
     }
 
-    // Audio Alert for New Signals (< 1 min old)
     const latestTime = new Date(data[0].detected_at);
     if ((new Date() - latestTime) < 60000) {
         const audio = document.getElementById('alertSound');
@@ -225,18 +357,13 @@ async function updateTelegramUI() {
 }
 
 // --- NEW: STRATEGY RENDERER ---
-// --- NEW: STRATEGY RENDERER (Updated to show LIVE SIGNALS) ---
 async function refreshStrategies() {
     const container = document.getElementById('strategiesContainer');
     if (!container) return; 
 
     container.innerHTML = '<div class="loader"></div> Loading Strategy Data...';
     
-    // 1. Fetch Static Strategy Info & Backtests
     const strategies = await API.getStrategies();
-
-    // 2. Fetch LIVE Signals specifically for this strategy
-    // (We hardcode the type here because it matches the Python signal name)
     const liveSignals = await API.getSignals('STRATEGY_UNLOCK_SHORT');
 
     if (!strategies.length) {
@@ -244,7 +371,6 @@ async function refreshStrategies() {
         return;
     }
 
-    // 3. Build the Live Signals HTML
     let liveSignalsHtml = '';
     if (liveSignals.length > 0) {
         const rows = liveSignals.map(s => {
@@ -282,11 +408,8 @@ async function refreshStrategies() {
         `;
     }
 
-    // 4. Render everything
     container.innerHTML = strategies.map(strat => {
         const logic = strat.logic_summary || {};
-        
-        // Build Performance Table Rows
         const perfRows = strat.performance && strat.performance.length > 0 
             ? strat.performance.map(p => `
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
@@ -338,34 +461,23 @@ async function refreshStrategies() {
         `;
     }).join('');
 }
+
 // --- NEW: VIEW NAVIGATION ---
 function showSection(sectionId) {
-    // 1. Get the containers
     const dashboardDiv = document.getElementById('dashboardSection');
     const strategiesDiv = document.getElementById('strategiesSection');
 
-    // 2. Reset Sidebar Active States
     document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
 
-    // 3. Switch Logic
     if (sectionId === 'strategies') {
         if(dashboardDiv) dashboardDiv.style.display = 'none';
         if(strategiesDiv) strategiesDiv.style.display = 'block';
-        
         refreshStrategies();
-        
-        // Highlight strategy menu item
-        if (event && event.currentTarget) {
-            event.currentTarget.classList.add('active');
-        }
+        if (event && event.currentTarget) event.currentTarget.classList.add('active');
     } else {
         if(dashboardDiv) dashboardDiv.style.display = 'block';
         if(strategiesDiv) strategiesDiv.style.display = 'none';
-
-        // Highlight dashboard menu item
-        if (event && event.currentTarget) {
-            event.currentTarget.classList.add('active');
-        }
+        if (event && event.currentTarget) event.currentTarget.classList.add('active');
     }
 }
 
@@ -373,12 +485,16 @@ function showSection(sectionId) {
 function openChart(symbol, timeframe = '1h', signalType = 'NONE') {
     const modal = document.getElementById('chartModal');
     const title = document.getElementById('modalTitle');
+    const container = document.getElementById('tv_chart_container');
     
     if(modal && title) {
         modal.style.display = 'flex';
         const cleanName = signalType !== 'NONE' ? cleanSignalName(signalType) : 'Analysis';
         title.innerText = `${symbol}/USDT - ${timeframe} - ${cleanName}`;
         
+        // Ensure container is empty before creating widget
+        container.innerHTML = '';
+
         const tvInterval = TF_MAP[timeframe] || '60';
         const indicators = STUDY_MAP[signalType] || [];
 
@@ -398,8 +514,10 @@ function openChart(symbol, timeframe = '1h', signalType = 'NONE') {
         }
     }
 }
+
 function closeModal() {
     document.getElementById('chartModal').style.display = 'none';
+    // Clear container to remove Chart OR Bulk Alert Form
     document.getElementById('tv_chart_container').innerHTML = '';
 }
 
@@ -424,7 +542,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateTicker();
     setInterval(updateTicker, 10000);
 
-    // 4. Alert Creation Logic
+    // 4. Alert Creation Logic (Old Sidebar Form - Optional)
     const form = document.getElementById('createAlertForm');
     if (form) {
         form.onsubmit = async (e) => {
@@ -445,7 +563,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 status.innerHTML = `<span class="text-success">✅ Alert Active!</span>`;
                 refreshAlerts();
                 form.reset();
-                togglePriceInput(); // Reset visibility
                 setTimeout(() => status.innerText = "", 3000);
             } else {
                 status.innerHTML = `<span class="text-danger">❌ Error</span>`;
@@ -472,11 +589,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', function (e) {
             const categoryType = this.getAttribute('data-type');
-            
-            // If this is the Strategy view, ignore standard signal refresh
             if (categoryType === 'STRATEGY_VIEW') return;
             
-            // Otherwise, it's a standard Dashboard filter
             showSection('dashboard'); 
 
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));

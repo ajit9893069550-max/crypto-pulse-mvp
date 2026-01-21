@@ -44,7 +44,7 @@
                 <h3 id="modalTitle" style="margin:0; color:var(--text-main);">Chart Analysis</h3>
                 <button onclick="closeModal()" class="btn-close">✕</button>
             </div>
-            <div id="tv_chart_container" style="height: 500px; width: 100%;"></div>
+            <div id="tv_chart_container" style="min-height: 500px; width: 100%;"></div>
         </div>
     </div>
 
@@ -143,65 +143,15 @@
                             </a>
                         </div>
 
-                        <div class="card">
-                            <h3 style="color: var(--accent-green); margin-bottom: 15px; font-size: 16px;">🚀 Create New Alert</h3>
-                            <form id="createAlertForm">
-                                <div class="input-group">
-                                    <label class="menu-label">Asset</label>
-                                    <select id="alertAsset" required>
-                                        <option value="BTC/USDT">Bitcoin (BTC)</option>
-                                        <option value="ETH/USDT">Ethereum (ETH)</option>
-                                        <option value="SOL/USDT">Solana (SOL)</option>
-                                        <option value="XRP/USDT">Ripple (XRP)</option>
-                                        <option value="ADA/USDT">Cardano (ADA)</option>
-                                        <option value="BNB/USDT">Binance Coin (BNB)</option>
-                                        <option value="DOGE/USDT">Dogecoin (DOGE)</option>
-                                    </select>
-                                </div>
-
-                                <div class="input-group">
-                                    <label class="menu-label">Timeframe</label>
-                                    <select id="alertTimeframe" required>
-                                        <option value="15m">15 Minutes</option>
-                                        <option value="1h">1 Hour</option>
-                                        <option value="4h">4 Hours</option>
-                                    </select>
-                                </div>
-
-                                <div class="input-group">
-                                    <label class="menu-label">Signal Type</label>
-                                    <select id="alertType" required onchange="togglePriceInput()">
-                                        <option value="PRICE_TARGET">💰 Price Alert (Target)</option>
-                                        <optgroup label="Sniper Setups">
-                                            <option value="SNIPER_BUY_REVERSAL">🎯 Sniper Buy</option>
-                                            <option value="SNIPER_SELL_REJECTION">🛑 Sniper Sell</option>
-                                            <option value="MOMENTUM_BREAKOUT">🚀 Breakout</option>
-                                        </optgroup>
-                                        <optgroup label="Technical Indicators">
-                                            <option value="GOLDEN_CROSS" selected>Golden Cross</option> <option value="DEATH_CROSS">Death Cross</option>
-                                            <option value="RSI_OVERSOLD">RSI Oversold</option>
-                                            <option value="MACD_BULL_CROSS">MACD Bull Cross</option>
-                                            <option value="BB_SQUEEZE">Bollinger Squeeze</option>
-                                        </optgroup>
-                                    </select>
-                                </div>
-
-                                <div class="input-group" id="priceInputGroup" style="display: none;">
-                                    <label class="menu-label" style="color: var(--accent-green);">Target Price ($)</label>
-                                    <input type="number" id="alertPrice" step="any" placeholder="e.g. 95000" 
-                                           style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-dark); color: var(--text-main); font-weight: bold;">
-                                </div>
-
-                                <div class="input-group" style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px;">
-                                    <input type="checkbox" id="recurringAlert" style="width: auto; margin: 0; cursor: pointer;">
-                                    <label for="recurringAlert" style="margin: 0; cursor: pointer; font-size: 13px; text-transform: none; color: var(--text-main);">
-                                        Keep alert active (Recurring)
-                                    </label>
-                                </div>
-
-                                <button type="submit" class="btn-create">Activate Alert</button>
-                            </form>
-                            <div id="createAlertStatus" style="margin-top:10px; text-align:center; font-size:12px;"></div>
+                        <div class="card" style="margin-top: 20px; text-align: center; padding: 30px 20px;">
+                            <h3 style="color: var(--accent-green); margin-bottom: 10px; font-size: 18px;">🚀 Create Alerts</h3>
+                            <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 20px;">
+                                Setup multiple alerts at once. Select multiple coins and timeframes instantly.
+                            </p>
+                            
+                            <button onclick="openCreateAlertModal()" class="btn-create" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+                                <span style="font-size: 1.2em;">🔔</span> Launch Bulk Creator
+                            </button>
                         </div>
 
                         <div class="card" style="margin-top: 25px;">
@@ -218,7 +168,7 @@
                 <h1 class="page-title" style="margin-bottom: 10px;">Algorithmic Strategies</h1>
                 <p style="color: var(--text-dim); margin-bottom: 30px;">Proven logic backed by historical data. Automated by AlertDCX.</p>
                 <div id="strategiesContainer">
-                    </div>
+                </div>
             </div>
 
         </main>
