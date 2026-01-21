@@ -7,8 +7,9 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
-# Logic imports
-from strategy_engine import run_unlock_strategy, close_strategy_engine
+# --- UPDATED IMPORTS ---
+# We now import the Class, not the individual functions
+from strategy_engine import StrategyEngine 
 from new_alert_engine import analyze_asset, check_alerts, close_exchange
 
 load_dotenv()
@@ -124,6 +125,9 @@ async def strategy_loop():
     """Runs complex strategies every hour at minute 02 (e.g., 09:02, 10:02)."""
     logger.info("♟️ Strategy Engine Started (Aligned to XX:02)...")
     
+    # Initialize the Class-based Engine
+    engine = StrategyEngine()
+
     while True:
         try:
             # 1. Calculate time until next XX:02
@@ -141,8 +145,8 @@ async def strategy_loop():
             logger.info(f"♟️ Strategy sleeping {int(wait_seconds)}s until {target_time.strftime('%H:%M')}...")
             await asyncio.sleep(wait_seconds)
             
-            # 2. Run the Strategy
-            await run_unlock_strategy()
+            # 2. Run All Strategies (Unlock + Bullish 200MA)
+            await engine.run_all()
             
             # 3. Buffer to ensure we don't double-trigger (sleep 60s)
             await asyncio.sleep(60)
@@ -169,14 +173,15 @@ async def main():
         await asyncio.gather(
             scanner_loop(),  # The 15-minute Technical Scan
             alert_loop(),    # The 60-second Alert/Price Check
-            strategy_loop()  # The Hourly Strategy Check
+            strategy_loop()  # The Hourly Strategy Check (Updated)
         )
     except Exception as e:
         logger.error(f"Global Crash: {e}")
     finally:
         await application.stop()
         await close_exchange()
-        await close_strategy_engine()
+        # Note: StrategyEngine closes its own connection inside run_all automatically, 
+        # or we could make engine global and close it here if persistent.
 
 if __name__ == "__main__":
     try:

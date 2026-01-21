@@ -1,9 +1,16 @@
 /**
  * UI.JS - Handles Dashboard, Charts, Audio, Live Ticker & Bulk Alerts
+ * (Final Version: Supports Multi-Strategy Filtering)
  */
 
 // --- 1. CONFIGURATION & DEFINITIONS ---
 const WATCHLIST = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'BNBUSDT', 'DOGEUSDT'];
+
+// Map Strategy Slugs (DB) to Signal Types (Python)
+const STRATEGY_SIGNAL_MAP = {
+    'vesting-short-v2': 'STRATEGY_UNLOCK_SHORT',
+    'bullish-200ma-rsi': 'STRATEGY_BULLISH_200MA_RSI'
+};
 
 const SIGNAL_DEFINITIONS = {
     'ALL': "Monitoring high-probability setups.",
@@ -25,6 +32,7 @@ const SIGNAL_DEFINITIONS = {
 
     // Strategies
     'STRATEGY_UNLOCK_SHORT': "Unlock Strategy: High inflation token + BB Rejection.",
+    'STRATEGY_BULLISH_200MA_RSI': "Trend Pullback: Price > 200MA + RSI Dip + Green Candle.", 
 };
 
 const STUDY_MAP = {
@@ -38,7 +46,8 @@ const STUDY_MAP = {
     'SNIPER_BUY_REVERSAL': ['RSI@tv-basicstudies', 'BB@tv-basicstudies'],
     'SNIPER_SELL_REJECTION':['RSI@tv-basicstudies', 'BB@tv-basicstudies'],
     'MOMENTUM_BREAKOUT':   ['MACD@tv-basicstudies'],
-    'STRATEGY_UNLOCK_SHORT': ['BB@tv-basicstudies'] 
+    'STRATEGY_UNLOCK_SHORT': ['BB@tv-basicstudies'],
+    'STRATEGY_BULLISH_200MA_RSI': ['MASimple@tv-basicstudies', 'RSI@tv-basicstudies']
 };
 
 const TF_MAP = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D' };
@@ -109,7 +118,8 @@ function cleanSignalName(name, price = null) {
         'BB_SQUEEZE': '🤐 Volatility Squeeze',
         'VOLUME_SURGE': '📊 Volume Surge',
         'MACD_BULL_CROSS': '🟢 MACD Bull Cross',
-        'STRATEGY_UNLOCK_SHORT': '🧠 Unlock Short'
+        'STRATEGY_UNLOCK_SHORT': '🧠 Unlock Short',
+        'STRATEGY_BULLISH_200MA_RSI': '📈 Bullish 200MA Dip'
     };
     return map[name] || name.replace(/_/g, ' ');
 }
@@ -120,9 +130,7 @@ function copyToClipboard(text) {
     });
 }
 
-// --- 4. BULK ALERT CREATION LOGIC (NEW) ---
-
-// --- 4. BULK ALERT CREATION LOGIC (NEW) ---
+// --- 4. BULK ALERT CREATION LOGIC ---
 
 function openCreateAlertModal() {
     const modal = document.getElementById('chartModal'); 
@@ -135,15 +143,16 @@ function openCreateAlertModal() {
     const coins = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'BNB/USDT', 'DOGE/USDT', 'ENA/USDT', 'STRK/USDT', 'ZK/USDT', 'PIXEL/USDT'];
     const timeframes = ['15m', '1h', '4h'];
     
-    // UPDATED SIGNALS LIST (Added Death Cross)
+    // UPDATED SIGNALS LIST
     const signals = [
         {val: 'PRICE_TARGET', label: 'Price Target (Exact)'},
         {val: 'GOLDEN_CROSS', label: 'Golden Cross (Bullish)'},
-        {val: 'DEATH_CROSS', label: 'Death Cross (Bearish)'}, // <--- ADDED THIS
+        {val: 'DEATH_CROSS', label: 'Death Cross (Bearish)'},
         {val: 'RSI_OVERSOLD', label: 'RSI Oversold (<30)'},
         {val: 'RSI_OVERBOUGHT', label: 'RSI Overbought (>70)'},
         {val: 'VOLATILITY_SQUEEZE', label: 'Volatility Squeeze'},
-        {val: 'STRATEGY_UNLOCK_SHORT', label: 'Unlock Strategy Short'}
+        {val: 'STRATEGY_UNLOCK_SHORT', label: 'Unlock Strategy Short'},
+        {val: 'STRATEGY_BULLISH_200MA_RSI', label: 'Bullish 200MA Pullback'} 
     ];
 
     // 2. Build HTML
@@ -356,60 +365,67 @@ async function updateTelegramUI() {
     }
 }
 
-// --- NEW: STRATEGY RENDERER ---
-async function refreshStrategies() {
+// --- NEW: STRATEGY RENDERER (Dynamic Filter) ---
+async function refreshStrategies(filterSlug = null) {
     const container = document.getElementById('strategiesContainer');
     if (!container) return; 
 
     container.innerHTML = '<div class="loader"></div> Loading Strategy Data...';
     
-    const strategies = await API.getStrategies();
-    const liveSignals = await API.getSignals('STRATEGY_UNLOCK_SHORT');
+    // 1. Fetch All Strategies
+    let strategies = await API.getStrategies();
+
+    // 2. Filter if a specific strategy is requested
+    if (filterSlug) {
+        strategies = strategies.filter(s => s.slug === filterSlug);
+    }
 
     if (!strategies.length) {
-        container.innerHTML = '<p style="text-align:center;">No strategies available yet.</p>';
+        container.innerHTML = '<p style="text-align:center;">Strategy not found.</p>';
         return;
     }
 
-    let liveSignalsHtml = '';
-    if (liveSignals.length > 0) {
-        const rows = liveSignals.map(s => {
-            const relativeTime = timeAgo(s.detected_at);
-            const cleanName = cleanSignalName(s.signal_type);
-            const assetName = s.asset.replace('/USDT', '');
-            
-            return `
-            <tr class="signal-row" onclick="openChart('${assetName}', '${s.timeframe}', '${s.signal_type}')" style="background: rgba(0, 255, 136, 0.05);">
-                <td style="font-weight:bold; padding:12px;">${assetName}</td>
-                <td><span class="tf-badge">${s.timeframe}</span></td>
-                <td class="text-danger">SHORT SIGNAL</td> 
-                <td style="color:var(--text-dim); font-size:12px;">${relativeTime}</td>
-                <td style="text-align: right;"><button class="btn-view-chart">View Chart</button></td>
-            </tr>`;
-        }).join('');
-
-        liveSignalsHtml = `
-            <div style="margin-bottom: 30px; border: 1px solid var(--accent-green); border-radius: 12px; overflow: hidden;">
-                <div style="background: rgba(0, 255, 136, 0.1); padding: 15px; border-bottom: 1px solid var(--accent-green); display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="margin:0; color: var(--accent-green); font-size: 16px;">⚡ Active Strategy Signals</h3>
-                    <span class="update-tag" style="background: var(--accent-green); color: black; font-weight: bold;">LIVE</span>
-                </div>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tbody>${rows}</tbody>
-                </table>
-            </div>
-        `;
-    } else {
-        liveSignalsHtml = `
-            <div style="margin-bottom: 30px; padding: 20px; text-align: center; border: 1px dashed var(--border-color); border-radius: 12px; color: var(--text-dim);">
-                No active signals for this strategy right now.<br>
-                <small>Scanning 4H candles for BB Rejections...</small>
-            </div>
-        `;
-    }
-
-    container.innerHTML = strategies.map(strat => {
+    // 3. Render Each Strategy
+    const htmlPromises = strategies.map(async (strat) => {
         const logic = strat.logic_summary || {};
+        
+        // Determine which live signals to show for THIS strategy
+        const signalType = STRATEGY_SIGNAL_MAP[strat.slug];
+        let liveSignalsHtml = '';
+
+        if (signalType) {
+            const liveSignals = await API.getSignals(signalType);
+            
+            if (liveSignals.length > 0) {
+                const rows = liveSignals.map(s => {
+                    const relativeTime = timeAgo(s.detected_at);
+                    const assetName = s.asset.replace('/USDT', '');
+                    return `
+                    <tr class="signal-row" onclick="openChart('${assetName}', '${s.timeframe}', '${s.signal_type}')" style="background: rgba(0, 255, 136, 0.05);">
+                        <td style="font-weight:bold; padding:12px;">${assetName}</td>
+                        <td><span class="tf-badge">${s.timeframe}</span></td>
+                        <td class="text-success">ACTIVE SIGNAL</td> 
+                        <td style="color:var(--text-dim); font-size:12px;">${relativeTime}</td>
+                        <td style="text-align: right;"><button class="btn-view-chart">View</button></td>
+                    </tr>`;
+                }).join('');
+
+                liveSignalsHtml = `
+                    <div style="margin-bottom: 30px; border: 1px solid var(--accent-green); border-radius: 12px; overflow: hidden;">
+                        <div style="background: rgba(0, 255, 136, 0.1); padding: 15px; border-bottom: 1px solid var(--accent-green); display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="margin:0; color: var(--accent-green); font-size: 16px;">⚡ Live Signals: ${strat.name}</h3>
+                            <span class="update-tag" style="background: var(--accent-green); color: black; font-weight: bold;">LIVE</span>
+                        </div>
+                        <table style="width: 100%; border-collapse: collapse;"><tbody>${rows}</tbody></table>
+                    </div>`;
+            } else {
+                liveSignalsHtml = `
+                    <div style="margin-bottom: 30px; padding: 20px; text-align: center; border: 1px dashed var(--border-color); border-radius: 12px; color: var(--text-dim);">
+                        No active signals for ${strat.name} right now.<br><small>Scanning market...</small>
+                    </div>`;
+            }
+        }
+
         const perfRows = strat.performance && strat.performance.length > 0 
             ? strat.performance.map(p => `
                 <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
@@ -418,48 +434,39 @@ async function refreshStrategies() {
                     <td class="${p.win_rate_percent >= 50 ? 'text-success' : 'text-danger'}">${p.win_rate_percent}%</td>
                     <td class="${p.total_pnl_percent >= 0 ? 'text-success' : 'text-danger'}">${p.total_pnl_percent > 0 ? '+' : ''}${p.total_pnl_percent}%</td>
                     <td style="color: #ff6b6b;">-${p.max_drawdown_percent}%</td>
-                </tr>
-            `).join('')
+                </tr>`).join('')
             : '<tr><td colspan="5" style="text-align:center; padding:10px;">No backtest data available yet.</td></tr>';
 
         return `
-        ${liveSignalsHtml}
+            ${liveSignalsHtml}
+            <div style="background: var(--card-bg); border-radius: 12px; padding: 24px; margin-bottom: 30px; border: 1px solid var(--border-color);">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
+                    <h2 style="color: var(--accent-color); margin:0; font-size: 1.5rem;">${strat.name}</h2>
+                    <span style="background: #ff4757; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">Risk: ${strat.risk_profile}</span>
+                </div>
+                <p style="color: var(--text-dim); line-height: 1.5;">${strat.description}</p>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 25px 0;">
+                    <div class="logic-box"><strong>🎯 Trigger</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Trigger || 'N/A'}</span></div>
+                    <div class="logic-box"><strong>🛑 Filter</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Filter || 'N/A'}</span></div>
+                    <div class="logic-box"><strong>⏳ Window</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Window || 'N/A'}</span></div>
+                    <div class="logic-box"><strong>🚪 Exit</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Exit || 'N/A'}</span></div>
+                </div>
+                <h3 style="margin-top: 30px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; font-size: 1.2rem;">📊 Backtest Performance (2 Years)</h3>
+                <div style="overflow-x: auto;">
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.95em;">
+                        <thead>
+                            <tr style="text-align: left; color: var(--text-dim);">
+                                <th style="padding: 10px;">Asset</th><th style="padding: 10px;">Trades</th><th style="padding: 10px;">Win Rate</th><th style="padding: 10px;">Total PnL</th><th style="padding: 10px;">Max DD</th>
+                            </tr>
+                        </thead>
+                        <tbody>${perfRows}</tbody>
+                    </table>
+                </div>
+            </div>`;
+    });
 
-        <div style="background: var(--card-bg); border-radius: 12px; padding: 24px; margin-bottom: 30px; border: 1px solid var(--border-color);">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 15px;">
-                <h2 style="color: var(--accent-color); margin:0; font-size: 1.5rem;">${strat.name}</h2>
-                <span style="background: #ff4757; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">Risk: ${strat.risk_profile}</span>
-            </div>
-            
-            <p style="color: var(--text-dim); line-height: 1.5;">${strat.description}</p>
-
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 25px 0;">
-                <div class="logic-box"><strong>🎯 Trigger</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Trigger || 'N/A'}</span></div>
-                <div class="logic-box"><strong>🛑 Filter</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Filter || 'N/A'}</span></div>
-                <div class="logic-box"><strong>⏳ Window</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Window || 'N/A'}</span></div>
-                <div class="logic-box"><strong>🚪 Exit</strong><br><span style="color:var(--text-dim); font-size:0.9em;">${logic.Exit || 'N/A'}</span></div>
-            </div>
-
-            <h3 style="margin-top: 30px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; font-size: 1.2rem;">📊 Backtest Performance (2 Years)</h3>
-            <div style="overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.95em;">
-                    <thead>
-                        <tr style="text-align: left; color: var(--text-dim);">
-                            <th style="padding: 10px;">Asset</th>
-                            <th style="padding: 10px;">Trades</th>
-                            <th style="padding: 10px;">Win Rate</th>
-                            <th style="padding: 10px;">Total PnL</th>
-                            <th style="padding: 10px;">Max DD</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${perfRows}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-        `;
-    }).join('');
+    const renderedHtml = await Promise.all(htmlPromises);
+    container.innerHTML = renderedHtml.join('');
 }
 
 // --- NEW: VIEW NAVIGATION ---
@@ -472,7 +479,7 @@ function showSection(sectionId) {
     if (sectionId === 'strategies') {
         if(dashboardDiv) dashboardDiv.style.display = 'none';
         if(strategiesDiv) strategiesDiv.style.display = 'block';
-        refreshStrategies();
+        // Note: refreshStrategies() is called separately in the click handler
         if (event && event.currentTarget) event.currentTarget.classList.add('active');
     } else {
         if(dashboardDiv) dashboardDiv.style.display = 'block';
@@ -585,16 +592,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    // 6. Navigation Logic (Updates Description Inline)
+    // 6. Navigation Logic (UPDATED)
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', function (e) {
             const categoryType = this.getAttribute('data-type');
-            if (categoryType === 'STRATEGY_VIEW') return;
             
-            showSection('dashboard'); 
-
+            // Highlight Active Item
             document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
             this.classList.add('active');
+
+            // CASE A: It's a Strategy Page (e.g., "STRATEGY:vesting-short-v2")
+            if (categoryType && categoryType.startsWith('STRATEGY:')) {
+                const slug = categoryType.split(':')[1]; // Extract 'vesting-short-v2'
+                showSection('strategies');
+                refreshStrategies(slug); // Load ONLY this strategy
+                return;
+            }
+
+            // CASE B: It's a Standard Dashboard Filter (e.g., "GOLDEN_CROSS")
+            if (categoryType === 'STRATEGY_VIEW') return; // Legacy catch
+            
+            showSection('dashboard'); 
             
             const title = document.getElementById('currentCategoryTitle');
             if (title) title.innerText = this.innerText;
@@ -607,6 +625,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             refreshSignals(categoryType);
             
+            // Close mobile sidebar if open
             if (window.innerWidth <= 1024 && sidebar.classList.contains('active')) {
                 sidebar.classList.remove('active');
             }
