@@ -46,7 +46,6 @@ class StrategyEngine:
             }
         })
         self.exchange.urls['api']['public'] = 'https://data-api.binance.vision/api/v3'
-        # Disable internal cache to save RAM
         self.exchange.enableRateLimit = True
 
     async def fetch_ohlcv(self, symbol, timeframe, limit=300):
@@ -128,14 +127,17 @@ class StrategyEngine:
             if last_candle['high'] >= last_candle[bbu_col] and last_candle['close'] < last_candle['open']:
                 await self.save_signal(token, TIMEFRAME_UNLOCK, "STRATEGY_UNLOCK_SHORT", datetime.now().isoformat())
             
+            # --- AGGRESSIVE CLEANUP PER COIN ---
             del df
             gc.collect()
+            await asyncio.sleep(1) # Pause to let RAM settle
 
     async def run_trend_strategy(self):
         for token in MAJOR_COINS:
             symbol = f"{token}/USDT"
             
-            df = await self.fetch_ohlcv(symbol, TIMEFRAME_TREND)
+            # Use limit=205 just enough for 200MA (saves RAM vs 300)
+            df = await self.fetch_ohlcv(symbol, TIMEFRAME_TREND, limit=210) 
             if df is None or len(df) < 200: 
                 del df
                 gc.collect()
@@ -152,8 +154,10 @@ class StrategyEngine:
             if is_uptrend and is_oversold and is_green:
                 await self.save_signal(token, TIMEFRAME_TREND, "STRATEGY_BULLISH_200MA_RSI", datetime.now().isoformat())
             
+            # --- AGGRESSIVE CLEANUP PER COIN ---
             del df
             gc.collect()
+            await asyncio.sleep(1) # Pause to let RAM settle
 
     async def run_all(self):
         logger.info("🚀 Starting Strategy Scan...")
