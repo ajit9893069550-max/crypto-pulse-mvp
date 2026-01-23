@@ -6,6 +6,7 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from supabase import create_client, Client
 from dotenv import load_dotenv
+import gc
 
 # --- UPDATED IMPORTS ---
 # We now import the Class, not the individual functions
@@ -148,7 +149,11 @@ async def strategy_loop():
             # 2. Run All Strategies (Unlock + Bullish 200MA)
             await engine.run_all()
             
-            # 3. Buffer to ensure we don't double-trigger (sleep 60s)
+            # 3. CRITICAL: Force Memory Cleanup
+            gc.collect()  
+            logger.info("🧹 Memory Cleaned.")
+            
+            # 4. Buffer to ensure we don't double-trigger (sleep 60s)
             await asyncio.sleep(60)
 
         except Exception as e:
