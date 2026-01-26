@@ -65,14 +65,15 @@ async def get_live_price(symbol):
 async def analyze_asset(symbol, timeframe):
     """Fetches data, calculates indicators, and saves signals to Supabase."""
     try:
-        bars = await exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=250)
-        if not bars or len(bars) < 200: 
+        # Fetch enough data to find the crossover start
+        bars = await exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=300)
+        if not bars or len(bars) < 250: 
             return
         
         df = pd.DataFrame(bars, columns=['ts', 'open', 'high', 'low', 'close', 'vol'])
         df[['open', 'high', 'low', 'close', 'vol']] = df[['open', 'high', 'low', 'close', 'vol']].apply(pd.to_numeric)
         
-        # Use Open Time for consistency
+        # Timestamp
         last_closed_row = df.iloc[-2]
         last_closed_ts = datetime.fromtimestamp(last_closed_row['ts'] / 1000, tz=timezone.utc)
         asset_name = symbol.replace('/USDT', '')
@@ -100,27 +101,88 @@ async def analyze_asset(symbol, timeframe):
 
         if None in cols.values(): return
         
-        last = df.iloc[-2]
-        prev = df.iloc[-3]
-        avg_vol = df['vol'].rolling(20).mean().iloc[-2]
+        # Analyze the LAST CLOSED candle (index -2)
+        curr_idx = len(df) - 2
+        last = df.iloc[curr_idx]
+        prev = df.iloc[curr_idx - 1]
+        
+        avg_vol = df['vol'].rolling(20).mean().iloc[curr_idx]
         vol_surge = last['vol'] > (avg_vol * 2.0)
 
         findings = []
 
-        # Signals
-        if last[cols['sma50']] > last[cols['sma200']] and prev[cols['sma50']] <= prev[cols['sma200']]:
-            findings.append("GOLDEN_CROSS")
-        if last[cols['sma50']] < last[cols['sma200']] and prev[cols['sma50']] >= prev[cols['sma200']]:
-            findings.append("DEATH_CROSS")
+        # =========================================
+        # 1. GOLDEN CROSS PULLBACK (Updated)
+        # =========================================
+        # Condition: 50MA > 200MA (Golden Zone)
+        if last[cols['sma50']] > last[cols['sma200']]:
+            # Trigger: Price touched MA50 or MA200 AND Green Candle
+            touched_ma = (last['low'] <= last[cols['sma50']]) or (last['low'] <= last[cols['sma200']])
+            is_green = last['close'] > last['open']
+            
+            if touched_ma and is_green:
+                # Check for "First Pullback" - Scan backwards until the crossover
+                is_first_pullback = True
+                for i in range(curr_idx - 1, -1, -1):
+                    row = df.iloc[i]
+                    # Stop if we hit the crossover point (Trend started here)
+                    if row[cols['sma50']] <= row[cols['sma200']]:
+                        break
+                    
+                    # Check if a pullback already happened before
+                    prev_touch = (row['low'] <= row[cols['sma50']]) or (row['low'] <= row[cols['sma200']])
+                    prev_green = row['close'] > row['open']
+                    
+                    if prev_touch and prev_green:
+                        is_first_pullback = False
+                        break
+                
+                if is_first_pullback:
+                    findings.append("GOLDEN_CROSS") # Storing as standard ID for alerts
+
+        # =========================================
+        # 2. DEATH CROSS PULLBACK (Updated)
+        # =========================================
+        # Condition: 50MA < 200MA (Death Zone)
+        if last[cols['sma50']] < last[cols['sma200']]:
+            # Trigger: Price touched MA50 or MA200 AND Red Candle
+            touched_ma = (last['high'] >= last[cols['sma50']]) or (last['high'] >= last[cols['sma200']])
+            is_red = last['close'] < last['open']
+            
+            if touched_ma and is_red:
+                # Check for "First Pullback"
+                is_first_pullback = True
+                for i in range(curr_idx - 1, -1, -1):
+                    row = df.iloc[i]
+                    if row[cols['sma50']] >= row[cols['sma200']]:
+                        break
+                    
+                    prev_touch = (row['high'] >= row[cols['sma50']]) or (row['high'] >= row[cols['sma200']])
+                    prev_red = row['close'] < row['open']
+                    
+                    if prev_touch and prev_red:
+                        is_first_pullback = False
+                        break
+                
+                if is_first_pullback:
+                    findings.append("DEATH_CROSS")
+
+        # =========================================
+        # 3. OTHER SIGNALS (Standard)
+        # =========================================
         if last[cols['macd']] > last[cols['macds']] and prev[cols['macd']] <= prev[cols['macds']]:
             findings.append("MACD_BULL_CROSS")
+        
         if last[cols['rsi']] < 35 and last['low'] <= last[cols['bbl']] and vol_surge:
             findings.append("SNIPER_BUY_REVERSAL")
+            
         if last[cols['rsi']] > 65 and last['high'] >= last[cols['bbu']] and vol_surge:
             findings.append("SNIPER_SELL_REJECTION")
+            
         if last[cols['macd']] > last[cols['macds']] and prev[cols['macd']] <= prev[cols['macds']] and vol_surge:
              findings.append("MOMENTUM_BREAKOUT")
 
+        # --- SAVE TO DB ---
         if findings:
             for signal in findings:
                 data = {
@@ -192,9 +254,6 @@ async def check_alerts():
         # --- B. TECHNICAL ALERTS ---
         else:
             lookback_time = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-            
-            # --- CRITICAL FIX: CLEAN THE ASSET NAME ---
-            # DB stores "BTC", but Alert has "BTC/USDT"
             search_asset = asset.replace('/USDT', '') 
             
             try:
@@ -217,7 +276,14 @@ async def check_alerts():
                         if signal_time <= last_alert_time:
                             continue 
 
-                    trigger_msg = f"🚀 <b>SIGNAL ALERT:</b>\n#{asset} ({alert['timeframe']})\n<b>{alert_type.replace('_', ' ')}</b> detected!"
+                    # Custom Message for Pullbacks
+                    signal_display = alert_type.replace('_', ' ')
+                    if alert_type == "GOLDEN_CROSS":
+                        signal_display = "GOLDEN CROSS (PULLBACK ENTRY)"
+                    elif alert_type == "DEATH_CROSS":
+                        signal_display = "DEATH CROSS (PULLBACK ENTRY)"
+
+                    trigger_msg = f"🚀 <b>SIGNAL ALERT:</b>\n#{asset} ({alert['timeframe']})\n<b>{signal_display}</b> detected!"
                     should_trigger = True
             except Exception as e:
                 logger.error(f"Error checking signals: {e}")
