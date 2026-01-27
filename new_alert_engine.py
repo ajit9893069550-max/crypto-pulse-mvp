@@ -111,65 +111,41 @@ async def analyze_asset(symbol, timeframe):
 
         findings = []
 
-        # =========================================
-        # 1. GOLDEN CROSS PULLBACK (Updated)
-        # =========================================
-        # Condition: 50MA > 200MA (Golden Zone)
+        # 1. GOLDEN CROSS PULLBACK
         if last[cols['sma50']] > last[cols['sma200']]:
-            # Trigger: Price touched MA50 or MA200 AND Green Candle
             touched_ma = (last['low'] <= last[cols['sma50']]) or (last['low'] <= last[cols['sma200']])
             is_green = last['close'] > last['open']
             
             if touched_ma and is_green:
-                # Check for "First Pullback" - Scan backwards until the crossover
                 is_first_pullback = True
                 for i in range(curr_idx - 1, -1, -1):
                     row = df.iloc[i]
-                    # Stop if we hit the crossover point (Trend started here)
-                    if row[cols['sma50']] <= row[cols['sma200']]:
-                        break
+                    if row[cols['sma50']] <= row[cols['sma200']]: break
                     
-                    # Check if a pullback already happened before
-                    prev_touch = (row['low'] <= row[cols['sma50']]) or (row['low'] <= row[cols['sma200']])
-                    prev_green = row['close'] > row['open']
-                    
-                    if prev_touch and prev_green:
+                    if ((row['low'] <= row[cols['sma50']]) or (row['low'] <= row[cols['sma200']])) and (row['close'] > row['open']):
                         is_first_pullback = False
                         break
                 
-                if is_first_pullback:
-                    findings.append("GOLDEN_CROSS") # Storing as standard ID for alerts
+                if is_first_pullback: findings.append("GOLDEN_CROSS")
 
-        # =========================================
-        # 2. DEATH CROSS PULLBACK (Updated)
-        # =========================================
-        # Condition: 50MA < 200MA (Death Zone)
+        # 2. DEATH CROSS PULLBACK
         if last[cols['sma50']] < last[cols['sma200']]:
-            # Trigger: Price touched MA50 or MA200 AND Red Candle
             touched_ma = (last['high'] >= last[cols['sma50']]) or (last['high'] >= last[cols['sma200']])
             is_red = last['close'] < last['open']
             
             if touched_ma and is_red:
-                # Check for "First Pullback"
                 is_first_pullback = True
                 for i in range(curr_idx - 1, -1, -1):
                     row = df.iloc[i]
-                    if row[cols['sma50']] >= row[cols['sma200']]:
-                        break
+                    if row[cols['sma50']] >= row[cols['sma200']]: break
                     
-                    prev_touch = (row['high'] >= row[cols['sma50']]) or (row['high'] >= row[cols['sma200']])
-                    prev_red = row['close'] < row['open']
-                    
-                    if prev_touch and prev_red:
+                    if ((row['high'] >= row[cols['sma50']]) or (row['high'] >= row[cols['sma200']])) and (row['close'] < row['open']):
                         is_first_pullback = False
                         break
                 
-                if is_first_pullback:
-                    findings.append("DEATH_CROSS")
+                if is_first_pullback: findings.append("DEATH_CROSS")
 
-        # =========================================
-        # 3. OTHER SIGNALS (Standard)
-        # =========================================
+        # 3. OTHER SIGNALS
         if last[cols['macd']] > last[cols['macds']] and prev[cols['macd']] <= prev[cols['macds']]:
             findings.append("MACD_BULL_CROSS")
         
@@ -234,12 +210,19 @@ async def check_alerts():
 
         # --- A. PRICE ALERTS ---
         if 'PRICE_TARGET' in alert_type:
+            # Check recurring cooldown
             if is_recurring and last_triggered:
-                last_time = datetime.fromisoformat(last_triggered)
-                if (datetime.now(timezone.utc) - last_time).total_seconds() < 3600:
-                    continue 
+                try:
+                    last_time = datetime.fromisoformat(last_triggered)
+                    if (datetime.now(timezone.utc) - last_time).total_seconds() < 3600:
+                        continue 
+                except: pass
 
-            target_price = float(alert.get('target_price', 0))
+            # FIX: Safely handle None target price
+            raw_target = alert.get('target_price')
+            if raw_target is None: continue 
+            
+            target_price = float(raw_target)
             current_price = await get_live_price(asset)
             
             if current_price:
@@ -272,16 +255,15 @@ async def check_alerts():
                     trigger_timestamp = newest_signal['detected_at']
 
                     if is_recurring and last_triggered:
-                        last_alert_time = datetime.fromisoformat(last_triggered)
-                        if signal_time <= last_alert_time:
-                            continue 
+                        try:
+                            last_alert_time = datetime.fromisoformat(last_triggered)
+                            if signal_time <= last_alert_time:
+                                continue
+                        except: pass
 
-                    # Custom Message for Pullbacks
                     signal_display = alert_type.replace('_', ' ')
-                    if alert_type == "GOLDEN_CROSS":
-                        signal_display = "GOLDEN CROSS (PULLBACK ENTRY)"
-                    elif alert_type == "DEATH_CROSS":
-                        signal_display = "DEATH CROSS (PULLBACK ENTRY)"
+                    if alert_type == "GOLDEN_CROSS": signal_display = "GOLDEN CROSS (PULLBACK ENTRY)"
+                    elif alert_type == "DEATH_CROSS": signal_display = "DEATH CROSS (PULLBACK ENTRY)"
 
                     trigger_msg = f"🚀 <b>SIGNAL ALERT:</b>\n#{asset} ({alert['timeframe']})\n<b>{signal_display}</b> detected!"
                     should_trigger = True
