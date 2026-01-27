@@ -55,7 +55,6 @@ def take_server_screenshot(symbol, interval):
     logger.info(f"📸 Server: Headless browser for {symbol} on {interval}...")
     
     # 1. Full TradingView Timeframe Mapping
-    # Maps user-friendly strings (e.g., '4h') to TradingView API codes (e.g., '240')
     mapping = {
         "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
         "1h": "60", "2h": "120", "4h": "240", "6h": "360", "8h": "480", "12h": "720",
@@ -68,15 +67,20 @@ def take_server_screenshot(symbol, interval):
     
     tv_interval = mapping.get(norm_interval, "240") # Default to 4h if unknown
 
-    # 2. Chrome Options
+    # 2. Chrome Options (CRITICAL FOR RENDER)
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless=new") # Updated headless mode
     chrome_options.add_argument("--window-size=1920,1080")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("user-agent=Mozilla/5.0")
+    chrome_options.add_argument("--disable-dev-shm-usage") # Prevents memory crashes on Render
 
-    # 3. Minimal HTML to load TradingView
+    # 3. Connect to the Chrome Binary we installed via render-build.sh
+    chrome_binary = os.environ.get("CHROME_BIN")
+    if chrome_binary:
+        chrome_options.binary_location = chrome_binary
+
+    # 4. Minimal HTML to load TradingView
     html_content = f"""
     <html>
     <body style="margin:0; background:#131722; overflow:hidden;">
@@ -249,7 +253,7 @@ def api_analyze_chart():
         Return ONLY valid JSON with no extra text:
         {{ "trend": "Bullish/Bearish/Neutral", "support": "Price Level", "resistance": "Price Level", "signal": "BUY/SELL/WAIT", "reasoning": "Brief technical explanation (max 20 words)." }}
         """
-        response = client.models.generate_content(model='gemini-flash-latest', contents=[prompt, img])
+        response = client.models.generate_content(model='gemini-2.0-flash', contents=[prompt, img])
         
         # Clean response
         text = re.sub(r"```json|```", "", response.text.strip()).strip()
