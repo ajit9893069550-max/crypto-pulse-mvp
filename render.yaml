@@ -1,22 +1,43 @@
 services:
-  # 1. Dashboard (Web Service)
+  # 1. Dashboard & API (Needs Chrome for Screenshots)
   - type: web
     name: crypto-pulse-api
     runtime: python
-    plan: starter # Matches your new plan
-    buildCommand: pip install -r requirements.txt
+    plan: starter
+    # This command installs Google Chrome + Python Dependencies
+    buildCommand: |
+      apt-get update && apt-get install -y wget gnupg2
+      wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -
+      sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list'
+      apt-get update && apt-get install -y google-chrome-stable
+      pip install -r requirements.txt
     startCommand: gunicorn web_api:app
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.12
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: BOT_USERNAME
+        value: CryptoPulse_Bot
 
   # 2. Scanner & Bot (Background Worker)
   - type: worker
     name: crypto-scanner-bot
     runtime: python
-    plan: starter # Matches your new plan
+    plan: starter
+    # Worker doesn't need Chrome (saves build time)
     buildCommand: pip install -r requirements.txt
     startCommand: python run_bot.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.10.12
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false

@@ -1,35 +1,75 @@
-# 🚀 CryptoPulse Intelligence Dashboard
-A real-time cryptocurrency signal scanner and personal alert system. This project combines a technical analysis engine with a web dashboard and a Telegram bot handshake for instant notifications.
+# 🚀 CryptoPulse Intelligence Dashboard (MVP)
 
+**A real-time cryptocurrency signal scanner, AI-powered analyst, and personal alert system.**
 
+This project combines a robust Technical Analysis (TA) engine with a modern Web Dashboard, AI Chart Analysis (via Google Gemini), and a Telegram Bot handshake for instant notifications. It creates a seamless loop between detecting market opportunities and alerting the user.
 
-## 🛠 Features
-* **Market Scanner:** Monitors 7+ major pairs (BTC, ETH, SOL, etc.) across 15m, 1h, and 4h timeframes.
-* **Technical Indicators:** Detects Golden Cross, RSI Oversold, MACD Bullish Crossovers, and Bollinger Squeezes.
-* **Web Dashboard:** Live signal feed with "NEW" tags for fresh signals and theme-aware UI.
-* **Deep-Link Handshake:** Seamlessly link your web account to Telegram via a single click.
-* **Personal Alerts:** Create custom alerts via dropdowns and get notified on Telegram when conditions are met.
+---
+
+## 🛠 Key Features
+
+### 📊 **Intelligent Market Scanner**
+* **Multi-Timeframe Monitoring:** Scans **15m, 1h, and 4h** charts for 10+ major pairs (BTC, ETH, SOL, XRP, etc.).
+* **Advanced Signals:** Detects complex setups like **Golden Cross (Pullback Entry)**, **Death Cross**, **RSI Divergence**, and **Volume Surges**.
+* **Algorithmic Strategies:**
+    * **Bullish 200MA + RSI:** Buys dips in strong uptrends.
+    * **Unlock Token Short:** Identifies shorting opportunities before major token unlocks.
+
+### 🤖 **AI Chart Analyst (New!)**
+* **One-Click Analysis:** Takes a live screenshot of the chart using **Headless Chrome**.
+* **Google Gemini Integration:** Sends the chart image to Google's Gemini Flash 2.5 AI.
+* **Instant Insights:** Returns a structured summary: **Trend, Support/Resistance levels, and a Buy/Sell/Wait verdict**.
+
+### 🔔 **Smart Alerts System**
+* **Bulk Creation:** Create alerts for multiple assets and timeframes in a single click.
+* **Telegram Handshake:** Securely links your web dashboard to your Telegram account via a deep link.
+* ** recurring Alerts:** Option to set one-time or recurring notifications.
+
+---
 
 ## 📂 Project Structure
-* `run_bot.py`: Combined orchestrator (Scanner + Telegram Handshake).
-* `web_api.py`: Flask-based REST API for the web dashboard.
-* `new_alert_engine.py`: The TA logic and technical analysis processor.
-* `database_manager.py`: Centralized PostgreSQL/Supabase connection handler.
-* `templates/`: HTML files (`index.html`, `login.html`).
-* `static/`: Frontend assets (`scripts.js`, `styles.css`).
+
+### **Backend (Python)**
+* `web_api.py`: **Core API**. Handles the Flask server, AI requests, and Selenium (Headless Chrome) for screenshots.
+* `run_bot.py`: **Orchestrator**. Runs the Telegram Bot and the background Scanner loop.
+* `new_alert_engine.py`: **TA Logic**. Calculates indicators (RSI, MACD, BB) and triggers technical alerts.
+* `strategy_engine.py`: **Strategy Logic**. Handles specialized strategies like the 200MA Pullback.
+* `database_manager.py`: Centralized Supabase (PostgreSQL) connection handler.
+
+### **Frontend (HTML/JS)**
+* `templates/index.html`: The main dashboard UI (3-column layout).
+* `static/ui.js`: Handles UI logic, Chart rendering (TradingView), and Modal interactions.
+* `static/api.js`: Handles data fetching from the backend.
+* `static/auth.js`: Manages user login/logout via Supabase Auth.
+* `static/style.css`: Dark-themed responsive styling.
+
+### **Configuration**
+* `render.yaml`: **Deployment Config**. Tells Render.com how to install Chrome & Python.
+* `requirements.txt`: List of dependencies (Flask, Selenium, Pandas, etc.).
+
+---
 
 ## ⚙️ Setup Instructions
 
 ### 1. Prerequisites
-* Python 3.10+
-* Supabase Account (PostgreSQL)
-* Telegram Bot Token (via @BotFather)
+* **Python 3.10+**
+* **Google Chrome** (Required locally for screenshots; auto-installed on Render).
+* **Supabase Account** (For Database & Auth).
+* **Telegram Bot Token** (via @BotFather).
+* **Google Gemini API Key** (For AI Analysis).
 
-### 2. Environment Variables
+### 2. Environment Variables (.env)
 Create a `.env` file in the root directory:
+
 ```env
-TELEGRAM_BOT_TOKEN=your_bot_token
-DATABASE_URL=your_supabase_postgres_url
+# Database & Auth
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_KEY=your_supabase_anon_key
-SUPABASE_JWT_SECRET=your_jwt_secret_for_auth
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key (optional, for admin tasks)
+
+# Telegram
+TELEGRAM_BOT_TOKEN=your_bot_token
+BOT_USERNAME=YourBotName_bot
+
+# AI Analysis
+GEMINI_API_KEY=your_google_gemini_key

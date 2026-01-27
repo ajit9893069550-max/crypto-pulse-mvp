@@ -20,6 +20,13 @@ pip-delete-this-directory.txt
 *.log
 *.sqlite
 *.db
+geckodriver.log
+chromedriver.log
+
+# --- App Specific / Temporary ---
+temp_chart.html
+*.png
+chrome-user-data/
 
 # --- Editor / OS Specific ---
 .vscode/
