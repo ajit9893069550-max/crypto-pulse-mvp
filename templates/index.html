@@ -2,191 +2,149 @@
 <html lang="en" data-theme="dark">
 <head>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-9CPXYVDD5E"></script>
-    <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){dataLayer.push(arguments);}
-        gtag('js', new Date());
-
-        gtag('config', 'G-9CPXYVDD5E');
-    </script>
-    
+    <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-9CPXYVDD5E');</script>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Alert DCX | Intelligence Dashboard</title>
-    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alert DCX | Pro Terminal</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        /* New Badge Style */
-        .badge-new {
-            background-color: #00ff88; 
-            color: #000; 
-            font-size: 9px; 
-            font-weight: bold; 
-            padding: 2px 6px; 
-            border-radius: 4px; 
-            margin-left: 8px; 
-            vertical-align: middle;
-            letter-spacing: 0.5px;
-        }
-        /* Logic Box Style for Strategies */
-        .logic-box {
-            background: rgba(255, 255, 255, 0.05);
-            padding: 15px;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-            font-size: 0.9em;
-        }
-    </style>
+        /* LAYOUT */
+        body { margin:0; overflow:hidden; height:100vh; display:flex; flex-direction:column; background:var(--bg-main); }
+        #main-wrapper { display:grid; grid-template-columns:240px 1fr 320px; height:calc(100vh - 60px); width:100vw; overflow:hidden; }
+        
+        /* COLUMNS */
+        .sidebar { background:var(--bg-card); border-right:1px solid var(--border-color); display:flex; flex-direction:column; z-index:10; }
+        .center-column { background:#131722; display:flex; flex-direction:column; position:relative; overflow:hidden; min-width:0; }
+        .right-sidebar { background:var(--bg-card); border-left:1px solid var(--border-color); display:flex; flex-direction:column; padding:20px; overflow-y:auto; width:320px; }
 
-    <script>
-        // Pass Python variable to JavaScript
-        window.BOT_USERNAME = "{{ bot_username }}";
-    </script>
+        /* VIEWS */
+        #chart-view { height:100%; display:flex; flex-direction:column; }
+        #signal-view { height:100%; display:none; flex-direction:column; background:var(--bg-main); padding:20px; overflow-y:auto; }
+        
+        /* RIGHT PANELS (Toggleable) */
+        #panel-ai { display: block; }      /* Default: Visible */
+        #panel-alerts { display: none; }   /* Default: Hidden */
+
+        /* COMPONENTS */
+        .sidebar-tabs { display:flex; border-bottom:1px solid var(--border-color); }
+        .tab-btn { flex:1; padding:15px; background:transparent; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; }
+        .tab-btn.active { color:var(--accent-blue); border-bottom:2px solid var(--accent-blue); background:rgba(0,136,204,0.05); }
+        .tab-content { display:none; flex-grow:1; overflow-y:auto; }
+        .tab-content.active { display:block; }
+        
+        .watchlist-item { padding:12px 20px; border-bottom:1px solid rgba(255,255,255,0.05); cursor:pointer; display:flex; justify-content:space-between; align-items:center; color:var(--text-main); }
+        .watchlist-item:hover { background:rgba(255,255,255,0.05); border-left:3px solid var(--accent-green); }
+        
+        .ai-chat-box { height:130px; border-top:1px solid var(--border-color); background:var(--bg-card); padding:15px; }
+        .badge-new { background-color:#00ff88; color:#000; font-size:9px; font-weight:bold; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle; }
+    </style>
+    <script>window.BOT_USERNAME="{{ bot_username }}";</script>
 </head>
 <body>
 
-    <div id="chartModal" class="modal-overlay">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 id="modalTitle" style="margin:0; color:var(--text-main);">Chart Analysis</h3>
-                <button onclick="closeModal()" class="btn-close">✕</button>
-            </div>
-            <div id="tv_chart_container" style="min-height: 500px; width: 100%;"></div>
-        </div>
-    </div>
-
+    <div id="chartModal" class="modal-overlay"><div class="modal-content"><div class="modal-header"><h3 id="modalTitle">Create Alert</h3><button onclick="closeModal()" class="btn-close">✕</button></div><div id="tv_chart_container"></div></div></div>
     <audio id="alertSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.m4a" preload="auto"></audio>
 
-    <div class="dashboard-wrapper">
+    <header class="top-nav" style="height:60px; display:flex; align-items:center; padding:0 20px; background:var(--bg-card); border-bottom:1px solid var(--border-color);">
+        <button id="menuToggle" class="menu-hamburger" style="margin-right:15px;"><span></span><span></span><span></span></button>
+        <div class="brand" onclick="showDashboard()" style="cursor:pointer; font-size:1.3rem; font-weight:900; color:var(--text-main);">Alert <span style="color:var(--accent-green);">DCX</span></div>
+        <div style="flex-grow:1;"></div>
+        <div class="nav-actions" style="display:flex; align-items:center; gap:15px;">
+            <button onclick="openCreateAlertModal()" class="btn-create" style="padding:6px 15px; font-size:13px; display:flex; align-items:center; gap:6px;">🔔 Bulk Alerts</button>
+            <button id="themeToggle" class="btn-alerts" style="background:none; border:none; font-size:18px; cursor:pointer;">🌓</button>
+            <span id="authStatusLink"></span>
+        </div>
+    </header>
+
+    <div id="main-wrapper">
+        
         <aside class="sidebar">
-            <div class="sidebar-header" style="padding: 20px; border-bottom: 1px solid var(--border-color);">
-                <h3 style="color: var(--text-main);">Signal Filters</h3>
+            <div class="sidebar-tabs">
+                <button class="tab-btn active" onclick="switchSidebarTab('watchlist')">Watchlist</button>
+                <button class="tab-btn" onclick="switchSidebarTab('signals')">Signals</button>
             </div>
-            
-            <ul id="signalFilters" class="sidebar-nav">
-                <li class="nav-item active" data-type="ALL" onclick="showSection('dashboard')">🌍 All Live Signals</li>
-                
-                <p class="menu-label" style="padding: 10px 20px 5px; color: var(--accent-blue);">Sniper Setups</p>
-                <li class="nav-item" data-type="SNIPER_BUY_REVERSAL" onclick="showSection('dashboard')">🎯 Sniper Buy (Reversal)</li>
-                <li class="nav-item" data-type="SNIPER_SELL_REJECTION" onclick="showSection('dashboard')">🛑 Sniper Sell (Reject)</li>
-                <li class="nav-item" data-type="MOMENTUM_BREAKOUT" onclick="showSection('dashboard')">🚀 Momentum Breakout</li>
 
-                <p class="menu-label" style="padding: 10px 20px 5px; color: var(--accent-blue);">Trend & Volatility</p>
-                <li class="nav-item" data-type="GOLDEN_CROSS" onclick="showSection('dashboard')">🟡 Golden Cross</li>
-                <li class="nav-item" data-type="DEATH_CROSS" onclick="showSection('dashboard')">💀 Death Cross</li>
-                <li class="nav-item" data-type="BB_SQUEEZE" onclick="showSection('dashboard')">🤐 Volatility Squeeze</li>
-                <li class="nav-item" data-type="VOLUME_SURGE" onclick="showSection('dashboard')">📊 Volume Surge</li>
+            <div id="tab-watchlist" class="tab-content active">
+                <div style="padding:15px; border-bottom:1px solid var(--border-color);"><input type="text" id="watchlistInput" placeholder="+ Add Coin" style="width:100%; padding:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:white; border-radius:6px;"></div>
+                <div id="userWatchlist"></div>
+            </div>
 
-                <p class="menu-label" style="padding: 10px 20px 5px; color: var(--accent-blue);">Oscillators</p>
-                <li class="nav-item" data-type="RSI_OVERSOLD" onclick="showSection('dashboard')">📉 RSI Oversold</li>
-                <li class="nav-item" data-type="RSI_OVERBOUGHT" onclick="showSection('dashboard')">📈 RSI Overbought</li>
-                <li class="nav-item" data-type="MACD_BULL_CROSS" onclick="showSection('dashboard')">🟢 MACD Bull Cross</li>
-
-                <p class="menu-label" style="padding: 10px 20px 5px; color: var(--accent-blue);">Back Tested Strategy</p>
-              
-                <li class="nav-item" data-type="STRATEGY:vesting-short-v2">
-                    <span class="icon">🧠</span> Unlock Coin Strategy<span class="badge-new">NEW</span>
-                </li>
-
-                <li class="nav-item" data-type="STRATEGY:bullish-200ma-rsi">
-                    <span class="icon">📈</span> Bullish 200MA <span class="badge-new">NEW</span>
-                </li>
-
-            </ul>
+            <div id="tab-signals" class="tab-content">
+                <ul id="signalFilters" class="sidebar-nav">
+                    <li class="nav-item active" data-type="ALL" onclick="loadSignalView('ALL')">🌍 All Signals</li>
+                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Sniper</p>
+                    <li class="nav-item" data-type="SNIPER_BUY_REVERSAL" onclick="loadSignalView('SNIPER_BUY_REVERSAL')">🎯 Sniper Buy</li>
+                    <li class="nav-item" data-type="SNIPER_SELL_REJECTION" onclick="loadSignalView('SNIPER_SELL_REJECTION')">🛑 Sniper Sell</li>
+                    
+                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Trend</p>
+                    <li class="nav-item" data-type="GOLDEN_CROSS" onclick="loadSignalView('GOLDEN_CROSS')">🟡 Golden Cross</li>
+                    <li class="nav-item" data-type="DEATH_CROSS" onclick="loadSignalView('DEATH_CROSS')">💀 Death Cross</li>
+                    
+                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Strategies</p>
+                    <li class="nav-item" data-type="STRATEGY:vesting-short-v2" onclick="loadSignalView('STRATEGY:vesting-short-v2')">🧠 Unlock Strategy <span class="badge-new">NEW</span></li>
+                    <li class="nav-item" data-type="STRATEGY:bullish-200ma-rsi" onclick="loadSignalView('STRATEGY:bullish-200ma-rsi')">📈 Bullish 200MA <span class="badge-new">NEW</span></li>
+                </ul>
+            </div>
         </aside>
 
-        <main class="main-content">
-            <header class="top-nav" style="border-bottom: none; padding-bottom: 10px;">
-                <button id="menuToggle" class="menu-hamburger" title="Open Filters">
-                    <span></span><span></span><span></span>
-                </button>
+        <main class="center-column">
+            
+            <div id="chart-view">
+                <div style="flex-grow:1;" id="tradingview_chart_area"></div>
+                <div class="ai-chat-box">
+                    <h4 style="margin:0 0 10px 0; color:var(--text-main); font-size:13px;"><i class="fa-solid fa-robot"></i> Ask AI about this chart</h4>
+                    <div style="display:flex; gap:10px;"><input type="text" placeholder="e.g. Is this a good entry?" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--border-color); background:rgba(0,0,0,0.3); color:white;"><button class="btn-create" style="padding:0 20px;">Ask</button></div>
+                </div>
+            </div>
 
-                <div class="brand">Alert <span>DCX</span></div>
+            <div id="signal-view">
+                <div id="tickerBar" class="ticker-container" style="border-bottom:1px solid var(--border-color); margin-bottom:20px;"></div>
                 
-                <div class="nav-actions">
-                    <button id="themeToggle" class="btn-alerts" title="Toggle Theme" style="background:none; border:none; font-size:18px; cursor:pointer;">🌓</button>
-                    <span id="authStatusLink"></span>
+                <div class="section-header" style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
+                    <div><h2 id="currentCategoryTitle" style="margin:0;">Live Market Signals</h2><p id="categoryDescription" style="color:var(--text-dim); font-size:13px; margin-top:5px;">Monitoring high-probability setups.</p></div>
+                    <span class="update-tag" style="font-size:11px; background:rgba(0,255,136,0.1); color:var(--accent-green); padding:5px 10px; border-radius:12px; border:1px solid var(--accent-green);">⚡ Live</span>
                 </div>
-            </header>
+                
+                <div id="strategiesContainer" style="display: none;"></div> 
 
-            <div id="dashboardSection">
-                <div id="tickerBar" class="ticker-container" style="border-top: 1px solid var(--border-color);">
-                    <span style="color:var(--text-dim); font-size:12px;">Loading Market Data...</span>
-                </div>
-
-                <div class="content-body">
-                    <section class="display-section">
-                        <div class="section-header">
-                            <div>
-                                 <h2 id="currentCategoryTitle" style="margin-bottom: 5px;">All Live Market Signals</h2>
-                                 <p id="categoryDescription" style="color: var(--text-dim); font-size: 13px; max-width: 600px; line-height: 1.4;">
-                                            Monitoring all assets for high-probability setups in real-time.
-                                 </p>
-                            </div>
-                            <span class="update-tag" style="font-size: 11px; background: var(--bg-card); padding: 5px 10px; border-radius: 12px; border: 1px solid var(--border-color);">⚡ Live Updates</span>
-                        </div>
-
-                        <div class="table-container">
-                            <table id="marketScansTable">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 25%;">Asset</th>
-                                        <th style="width: 10%;">TF</th>
-                                        <th style="width: 35%;">Signal Type</th>
-                                        <th style="width: 15%;">Age</th>
-                                        <th style="width: 15%; text-align: center;">Chart</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="marketScansList">
-                                    <tr><td colspan="5" style="text-align:center; padding:50px;">Initializing scanner...</td></tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </section> 
-
-                    <aside class="alert-sidebar">
-                        <div id="telegramLinkSection">
-                            <h4 style="color: #0088cc; margin-bottom: 5px; display: flex; align-items: center;">
-                                <img src="https://upload.wikimedia.org/wikipedia/commons/8/82/Telegram_logo.svg" width="20" style="margin-right: 8px;">
-                                Telegram Alerts
-                            </h4>
-                            <p style="font-size: 12px; margin-bottom: 12px; color: var(--text-dim);">Get instant notifications on your phone.</p>
-                            <a id="connectTelegramBtn" href="#" target="_blank" class="btn-create" style="display: block; text-align: center; background-color: #0088cc; text-decoration: none; font-size: 13px; border: none; padding: 10px;">
-                                Link Telegram Bot
-                            </a>
-                        </div>
-
-                        <div class="card" style="margin-top: 20px; text-align: center; padding: 30px 20px;">
-                            <h3 style="color: var(--accent-green); margin-bottom: 10px; font-size: 18px;">🚀 Create Alerts</h3>
-                            <p style="color: var(--text-dim); font-size: 13px; margin-bottom: 20px;">
-                                Setup multiple alerts at once. Select multiple coins and timeframes instantly.
-                            </p>
-                            
-                            <button onclick="openCreateAlertModal()" class="btn-create" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
-                                <span style="font-size: 1.2em;">🔔</span> Launch Bulk Creator
-                            </button>
-                        </div>
-
-                        <div class="card" style="margin-top: 25px;">
-                            <h3 style="font-size: 16px; margin-bottom: 15px; color: var(--text-main);">📋 My Active Alerts</h3>
-                            <div id="myAlertsList">
-                                <p style="color: var(--text-dim); font-size: 13px;">No active alerts.</p>
-                            </div>
-                        </div>
-                    </aside>
+                <div id="mainTableContainer" class="table-container">
+                    <table id="marketScansTable" style="width:100%; border-collapse:collapse; font-size:14px;">
+                        <thead><tr style="text-align:left; color:var(--text-dim); border-bottom:1px solid var(--border-color);"><th style="padding:12px;">Asset</th><th>TF</th><th>Signal Type</th><th>Age</th></tr></thead>
+                        <tbody id="marketScansList"><tr><td colspan="4" style="text-align:center; padding:50px;">Initializing...</td></tr></tbody>
+                    </table>
                 </div>
             </div>
-
-            <div id="strategiesSection" style="display: none; padding: 20px;">
-                <h1 class="page-title" style="margin-bottom: 10px;">Algorithmic Strategies</h1>
-                <p style="color: var(--text-dim); margin-bottom: 30px;">Proven logic backed by historical data. Automated by AlertDCX.</p>
-                <div id="strategiesContainer">
-                </div>
-            </div>
-
         </main>
+
+        <aside class="right-sidebar">
+            
+            <div id="panel-ai">
+                <div style="background:rgba(0,136,204,0.1); border:1px solid #0088cc; padding:15px; border-radius:8px; margin-bottom:20px;">
+                    <h4 style="margin:0 0 5px 0; color:#0088cc;"><i class="fa-brands fa-telegram"></i> Telegram Alerts</h4>
+                    <p style="font-size:11px; color:var(--text-dim); margin-bottom:10px;">Get this signal sent to your phone.</p>
+                    <a id="connectTelegramBtn" href="#" target="_blank" style="display:block; text-align:center; background:#0088cc; color:white; text-decoration:none; padding:8px; border-radius:4px; font-size:12px; font-weight:bold;">Link Telegram</a>
+                </div>
+
+                <div style="border:1px solid var(--border-color); padding:15px; border-radius:8px; background:rgba(255,255,255,0.02);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;"><h3 style="margin:0; font-size:16px;">🤖 AI Insight</h3><select id="ai-timeframe-select" onchange="onTimeframeChange()" style="background-color:#1e222d; color:white; border:1px solid #444; padding:4px; border-radius:4px; width:60px;"><option value="15m">15m</option><option value="1h">1h</option><option value="4h" selected>4h</option><option value="1d">1D</option><option value="1w">1W</option></select></div>
+                    <div style="margin-bottom:10px; font-size:13px; display:flex; justify-content:space-between;"><span style="color:var(--text-dim);">Trend:</span> <strong id="ai-trend">--</strong></div>
+                    <div style="margin-bottom:10px; font-size:13px; display:flex; justify-content:space-between;"><span style="color:var(--text-dim);">Support:</span> <strong id="ai-support">--</strong></div>
+                    <div id="ai-signal-box" style="text-align:center; padding:10px; background:#333; border-radius:4px; font-weight:bold; font-size:13px; margin-bottom:15px;">WAITING...</div>
+                    <p id="ai-reasoning" style="font-size:12px; color:var(--text-dim); line-height:1.4; margin-bottom:15px;">Select a timeframe and click Analyze.</p>
+                    <button id="analyze-btn" onclick="runAIAnalysis()" style="width:100%; padding:10px; background:#00ff88; color:black; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">✨ Analyze Chart</button>
+                </div>
+            </div>
+
+            <div id="panel-alerts" style="display:none;">
+                <h3 style="font-size:16px; margin-bottom:15px; color:var(--text-main);">📋 My Active Alerts</h3>
+                <div id="myAlertsList">
+                    <p style="color:var(--text-dim); font-size:13px;">No active alerts found.</p>
+                </div>
+            </div>
+
+        </aside>
     </div>
 
     <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>

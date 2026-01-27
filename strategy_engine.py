@@ -1,6 +1,6 @@
 import os
 import asyncio
-import gc  # <--- CRITICAL FOR RENDER FREE TIER
+import gc
 import pandas as pd
 import pandas_ta as ta
 import ccxt.async_support as ccxt
@@ -34,16 +34,19 @@ TIMEFRAME_TREND = '1h'
 class StrategyEngine:
     def __init__(self):
         self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        # We initialize exchange only when running to save idle memory
         self.exchange = None 
 
     async def init_exchange(self):
-        """Initialize Exchange Connection"""
+        """Initialize Exchange Connection with Minimal Caching"""
         self.exchange = ccxt.binance({
             'enableRateLimit': True,
-            'options': {'defaultType': 'spot'}
+            'options': {
+                'defaultType': 'spot',
+                'adjustForTimeDifference': True,
+            }
         })
         self.exchange.urls['api']['public'] = 'https://data-api.binance.vision/api/v3'
+        self.exchange.enableRateLimit = True
 
     async def fetch_ohlcv(self, symbol, timeframe, limit=300):
         try:
@@ -72,7 +75,6 @@ class StrategyEngine:
             return datetime(next_year, next_month + 1, day)
 
     async def check_btc_safety(self):
-        """Returns False if BTC pumped > 7% in last 3 days (Unsafe for shorts)."""
         df = await self.fetch_ohlcv('BTC/USDT', '4h', limit=20)
         if df is None: return False
         
@@ -80,7 +82,6 @@ class StrategyEngine:
         old_price = df.iloc[0]['open'] 
         change_pct = ((current_price - old_price) / old_price) * 100
         
-        # Free memory immediately
         del df
         gc.collect()
 
@@ -102,7 +103,7 @@ class StrategyEngine:
         except Exception as e:
             logger.error(f"Database Error: {e}")
 
-    # --- STRATEGY 1: UNLOCK SHORT ---
+    # --- UPDATED: UNLOCK STRATEGY (Pure Signal, No Past Data) ---
     async def run_unlock_strategy(self):
         is_safe = await self.check_btc_safety()
         if not is_safe: return 
@@ -110,69 +111,89 @@ class StrategyEngine:
         for token, unlock_day in UNLOCK_TOKENS.items():
             symbol = f"{token}/USDT"
             
-            # Date Check
             next_unlock = self.get_next_unlock_date(unlock_day)
             window_start = next_unlock - timedelta(days=DAYS_BEFORE_UNLOCK)
             now = datetime.now()
 
+            # Only run if we are inside the 7-day window before unlock
             if not (window_start <= now <= next_unlock):
                 continue 
 
-            # Fetch & Analyze
             df = await self.fetch_ohlcv(symbol, TIMEFRAME_UNLOCK)
             if df is None: continue
 
+            # Indicator: Bollinger Bands
             df.ta.bbands(close=df['close'], length=20, std=2, append=True)
             bbu_col = 'BBU_20_2.0'
 
+            # Logic: Price touched Upper Band AND closed Red (Rejection)
             last_candle = df.iloc[-2]
-            if last_candle['high'] >= last_candle[bbu_col] and last_candle['close'] < last_candle['open']:
+            touched_band = last_candle['high'] >= last_candle[bbu_col]
+            is_red = last_candle['close'] < last_candle['open']
+
+            if touched_band and is_red:
                 await self.save_signal(token, TIMEFRAME_UNLOCK, "STRATEGY_UNLOCK_SHORT", datetime.now().isoformat())
             
-            # MEMORY CLEANUP
+            # Cleanup
             del df
             gc.collect()
+            await asyncio.sleep(1)
 
-    # --- STRATEGY 2: BULLISH 200 MA RSI ---
+    # --- UPDATED: 200MA STRATEGY (Bullish & Bearish, Pure Signal) ---
     async def run_trend_strategy(self):
         for token in MAJOR_COINS:
             symbol = f"{token}/USDT"
             
-            df = await self.fetch_ohlcv(symbol, TIMEFRAME_TREND)
+            # Fetch just enough candles for 200 SMA
+            df = await self.fetch_ohlcv(symbol, TIMEFRAME_TREND, limit=210) 
             if df is None or len(df) < 200: 
                 del df
                 gc.collect()
                 continue
 
-            df['SMA_200'] = ta.sma(df['close'], length=200)
-            df['RSI'] = ta.rsi(df['close'], length=14)
-
-            curr = df.iloc[-1]
-            is_uptrend = curr['close'] > curr['SMA_200']
-            is_oversold = curr['RSI'] <= 35
-            is_green = curr['close'] > curr['open']
-
-            if is_uptrend and is_oversold and is_green:
-                await self.save_signal(token, TIMEFRAME_TREND, "STRATEGY_BULLISH_200MA_RSI", datetime.now().isoformat())
+            df.ta.sma(length=200, append=True)
+            df.ta.rsi(length=14, append=True)
             
-            # MEMORY CLEANUP
+            sma_col = 'SMA_200'
+            rsi_col = 'RSI_14'
+
+            # Analyze the last closed candle
+            curr = df.iloc[-1]
+            
+            price = curr['close']
+            sma200 = curr[sma_col]
+            rsi = curr[rsi_col]
+            
+            is_green = curr['close'] > curr['open']
+            is_red = curr['close'] < curr['open']
+
+            # 1. BULLISH SETUP:
+            # - Trend: Price > 200 MA
+            # - Trigger: RSI <= 35 (Oversold)
+            # - Confirmation: Green Candle
+            if (price > sma200) and (rsi <= 35) and is_green:
+                await self.save_signal(token, TIMEFRAME_TREND, "STRATEGY_BULLISH_200MA_RSI", datetime.now().isoformat())
+
+            # 2. BEARISH SETUP:
+            # - Trend: Price < 200 MA
+            # - Trigger: RSI >= 65 (Overbought)
+            # - Confirmation: Red Candle
+            elif (price < sma200) and (rsi >= 65) and is_red:
+                await self.save_signal(token, TIMEFRAME_TREND, "STRATEGY_BEARISH_200MA_RSI", datetime.now().isoformat())
+            
+            # Cleanup
             del df
             gc.collect()
+            await asyncio.sleep(1)
 
     async def run_all(self):
         logger.info("🚀 Starting Strategy Scan...")
-        await self.init_exchange() # Start Connection
+        await self.init_exchange()
         
         await self.run_unlock_strategy()
         await self.run_trend_strategy()
         
         logger.info("🏁 Scan Complete.")
-        await self.exchange.close() # Close Connection
+        await self.exchange.close()
         self.exchange = None
-        
-        # FINAL CLEANUP
-        gc.collect() 
-
-if __name__ == "__main__":
-    engine = StrategyEngine()
-    asyncio.run(engine.run_all())
+        gc.collect()

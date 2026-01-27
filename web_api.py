@@ -1,15 +1,30 @@
 import os
+import time
+import json
+import re
+import requests
 import logging
+import pathlib
 from flask import Flask, render_template, jsonify, request
+from flask_cors import CORS
 from supabase import create_client, Client
 from dotenv import load_dotenv
-import requests
+
+# --- AI & BROWSER IMPORTS ---
+from google import genai
+import PIL.Image
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from io import BytesIO
 
 # Load environment variables
 load_dotenv()
 
 # --- CONFIGURATION ---
 app = Flask(__name__, static_folder='static', template_folder='templates')
+CORS(app)
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -19,37 +34,115 @@ logger = logging.getLogger("WebAPI")
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "CryptoPulse_Bot")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     logger.critical("❌ Missing Supabase Config!")
     exit(1)
 
+if not GEMINI_API_KEY:
+    logger.warning("⚠️ GEMINI_API_KEY is missing! AI Analysis features will not work.")
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 # ==============================================================================
-#  API ROUTES (Must be defined BEFORE the catch-all)
+#  AI & CHARTING FUNCTIONS (Helper Logic)
+# ==============================================================================
+
+def take_server_screenshot(symbol, interval):
+    """Captures a screenshot of the TradingView widget via Headless Chrome."""
+    logger.info(f"📸 Server: Headless browser for {symbol} on {interval}...")
+    
+    # 1. Full TradingView Timeframe Mapping
+    # Maps user-friendly strings (e.g., '4h') to TradingView API codes (e.g., '240')
+    mapping = {
+        "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
+        "1h": "60", "2h": "120", "4h": "240", "6h": "360", "8h": "480", "12h": "720",
+        "1d": "D", "3d": "3D", "1w": "W", "1m_month": "1M" 
+    }
+    
+    # Normalize input
+    norm_interval = interval.lower()
+    if interval == "1M": norm_interval = "1m_month" # Handle 1 Minute vs 1 Month confusion
+    
+    tv_interval = mapping.get(norm_interval, "240") # Default to 4h if unknown
+
+    # 2. Chrome Options
+    chrome_options = Options()
+    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("user-agent=Mozilla/5.0")
+
+    # 3. Minimal HTML to load TradingView
+    html_content = f"""
+    <html>
+    <body style="margin:0; background:#131722; overflow:hidden;">
+        <div class="tradingview-widget-container" style="height:100vh; width:100vw;">
+            <div id="tradingview_widget"></div>
+            <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+            <script type="text/javascript">
+            new TradingView.widget({{
+                "autosize": true,
+                "symbol": "{symbol}",
+                "interval": "{tv_interval}",
+                "timezone": "Asia/Kolkata",
+                "theme": "dark",
+                "style": "1",
+                "locale": "en",
+                "enable_publishing": false,
+                "hide_side_toolbar": true,
+                "container_id": "tradingview_widget",
+                "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies", "BB@tv-basicstudies"]
+            }});
+            </script>
+        </div>
+    </body>
+    </html>
+    """
+
+    temp_file = os.path.abspath("temp_chart.html")
+    with open(temp_file, "w") as f: f.write(html_content)
+    
+    # Generate proper file URL for cross-platform compatibility
+    file_url = pathlib.Path(temp_file).as_uri()
+
+    driver = None
+    try:
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver.get(file_url)
+        time.sleep(3.5) # Wait for chart + indicators to render
+        png_data = driver.get_screenshot_as_png()
+        return PIL.Image.open(BytesIO(png_data))
+    except Exception as e:
+        logger.error(f"Browser Error: {e}")
+        return None
+    finally:
+        if driver: driver.quit()
+        if os.path.exists(temp_file): os.remove(temp_file)
+
+# ==============================================================================
+#  API ROUTES
 # ==============================================================================
 
 @app.route('/api/config')
 def api_config():
-    """Returns public config for the frontend."""
     return jsonify({
         "SUPABASE_URL": SUPABASE_URL,
-        "SUPABASE_KEY": os.environ.get("SUPABASE_KEY"), # Public Anon Key
+        "SUPABASE_KEY": os.environ.get("SUPABASE_KEY"),
         "BOT_USERNAME": BOT_USERNAME
     })
 
 @app.route('/api/signals')
 def api_signals():
-    """Returns market scans filtered by type."""
     sig_type = request.args.get('type', 'ALL')
-    
     try:
         query = supabase.table('market_scans').select("*").order('detected_at', desc=True).limit(50)
-        
         if sig_type != 'ALL':
             query = query.eq('signal_type', sig_type)
-            
         response = query.execute()
         return jsonify(response.data)
     except Exception as e:
@@ -58,30 +151,23 @@ def api_signals():
 
 @app.route('/api/my-alerts')
 def api_my_alerts():
-    """Returns active alerts for a specific user."""
     user_id = request.args.get('user_id')
-    if not user_id: 
-        return jsonify([])
-    
+    if not user_id: return jsonify([])
     try:
         response = supabase.table('alerts').select("*").eq('user_id', user_id).execute()
         return jsonify(response.data)
     except Exception as e:
-        logger.error(f"My Alerts API Error: {e}")
         return jsonify({"error": str(e)})
-
 
 @app.route('/api/create-alert', methods=['POST'])
 def api_create_alert():
-    """Creates a new alert with Recurring option."""
     try:
         data = request.json
         asset = data.get('asset')
         target_price = data.get('target_price')
         signal_type = data.get('signal_type')
-        is_recurring = data.get('is_recurring', False) # New Field
+        is_recurring = data.get('is_recurring', False)
 
-        # --- SMART DIRECTION LOGIC (Same as before) ---
         if signal_type == 'PRICE_TARGET' and target_price:
             try:
                 symbol_clean = asset.replace('/', '') 
@@ -89,33 +175,25 @@ def api_create_alert():
                 price_res = requests.get(url, timeout=2).json()
                 current_price = float(price_res['price'])
                 target = float(target_price)
-
-                if target > current_price:
-                    signal_type = "PRICE_TARGET_ABOVE"
-                else:
-                    signal_type = "PRICE_TARGET_BELOW"
+                signal_type = "PRICE_TARGET_ABOVE" if target > current_price else "PRICE_TARGET_BELOW"
             except Exception as e:
                 logger.error(f"Price fetch failed: {e}")
 
-        # 3. Save to Database
         response = supabase.table('alerts').insert({
             "user_id": data.get('user_id'),
             "asset": asset,
             "timeframe": data.get('timeframe'),
             "alert_type": signal_type,
             "target_price": target_price,
-            "is_recurring": is_recurring, # <--- Save this
+            "is_recurring": is_recurring,
             "status": "ACTIVE"
         }).execute()
-        
         return jsonify({"success": True, "data": response.data})
     except Exception as e:
-        logger.error(f"Create Alert Error: {e}")
         return jsonify({"success": False, "error": str(e)})
 
 @app.route('/api/delete-alert/<int:alert_id>', methods=['DELETE'])
 def api_delete_alert(alert_id):
-    """Deletes an alert."""
     try:
         supabase.table('alerts').delete().eq('id', alert_id).execute()
         return jsonify({"success": True})
@@ -124,7 +202,6 @@ def api_delete_alert(alert_id):
 
 @app.route('/api/telegram-status')
 def api_telegram_status():
-    """Checks if user has linked Telegram."""
     user_id = request.args.get('user_id')
     if not user_id: return jsonify({"linked": False})
     
@@ -136,44 +213,91 @@ def api_telegram_status():
         pass
     return jsonify({"linked": False})
 
-# --- NEW ROUTE: STRATEGIES ---
 @app.route('/api/strategies')
 def api_strategies():
-    """Returns all strategies with their performance data."""
     try:
-        # 1. Fetch Strategies
         strategies_res = supabase.table('strategies').select("*").execute()
         strategies = strategies_res.data
-
-        # 2. Fetch Performance Data for each strategy
         for strat in strategies:
-            perf_res = supabase.table('strategy_performance')\
-                .select("*")\
-                .eq('strategy_id', strat['id'])\
-                .execute()
+            perf_res = supabase.table('strategy_performance').select("*").eq('strategy_id', strat['id']).execute()
             strat['performance'] = perf_res.data
-
         return jsonify(strategies)
     except Exception as e:
         logger.error(f"Strategy API Error: {e}")
         return jsonify([])
 
-# ==============================================================================
-#  FRONTEND SERVING (Catch-All)
-# ==============================================================================
+# --- ROUTE: AI ANALYSIS ---
+@app.route('/api/analyze', methods=['POST'])
+def api_analyze_chart():
+    if not client: return jsonify({"error": "Gemini API Key missing"}), 500
+    
+    data = request.json
+    symbol = data.get('symbol', 'BINANCE:BTCUSDT')
+    interval = data.get('interval', '4h') 
+    
+    try:
+        img = take_server_screenshot(symbol, interval)
+        if not img: return jsonify({"error": "Failed to capture screenshot"}), 500
+
+        prompt = f"""
+        You are a professional crypto trader. Analyze this {interval} chart for {symbol}.
+        Return ONLY valid JSON with no extra text:
+        {{ "trend": "Bullish/Bearish/Neutral", "support": "Price Level", "resistance": "Price Level", "signal": "BUY/SELL/WAIT", "reasoning": "Brief technical explanation (max 20 words)." }}
+        """
+        response = client.models.generate_content(model='gemini-flash-latest', contents=[prompt, img])
+        
+        # Clean response
+        text = re.sub(r"```json|```", "", response.text.strip()).strip()
+        try: ai_data = json.loads(text)
+        except: ai_data = {}
+        
+        # Standardize keys to lowercase
+        data = {k.lower(): v for k, v in ai_data.items()}
+        
+        return jsonify({
+            "trend": data.get("trend", "Neutral"),
+            "support": data.get("support", "--"),
+            "resistance": data.get("resistance", "--"),
+            "signal": data.get("signal", "WAIT").upper(),
+            "reasoning": data.get("reasoning", "Analysis complete.")
+        })
+
+    except Exception as e:
+        logger.error(f"AI Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+# --- ROUTE: SEARCH PROXY ---
+@app.route('/api/search', methods=['GET'])
+def api_search_proxy():
+    query = request.args.get('q', '')
+    if not query: return jsonify([])
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        url = f"https://query1.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=6&newsCount=0"
+        response = requests.get(url, headers=headers)
+        data = response.json()
+        results = []
+        if 'quotes' in data:
+            for item in data['quotes']:
+                symbol = item.get('symbol', '')
+                exchange = item.get('exchange', '')
+                tv_exchange = 'BINANCE'
+                tv_symbol = symbol
+                
+                # Simple Mapping for Yahoo -> TradingView symbols
+                if exchange == 'NSI': tv_exchange = 'NSE'; tv_symbol = symbol.replace('.NS', '')
+                elif exchange == 'BSE': tv_exchange = 'BSE'; tv_symbol = symbol.replace('.BO', '')
+                elif item.get('quoteType') == 'CRYPTOCURRENCY': tv_symbol = symbol.replace('-', '') + 'T'
+
+                results.append({"symbol": f"{tv_exchange}:{tv_symbol}", "name": item.get('shortname', symbol)})
+        return jsonify(results)
+    except: return jsonify([])
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
-    # 1. Block invalid API calls that fell through
-    if path.startswith('api/'): 
-        return jsonify({"error": "Not Found"}), 404
-    
-    # 2. Serve Login Page (Pass bot username)
-    if path == "login.html": 
-        return render_template('login.html', bot_username=BOT_USERNAME)
-
-    # 3. Default: Serve Dashboard
+    if path.startswith('api/'): return jsonify({"error": "Not Found"}), 404
+    if path == "login.html": return render_template('login.html', bot_username=BOT_USERNAME)
     return render_template('index.html', bot_username=BOT_USERNAME)
 
 if __name__ == '__main__':
