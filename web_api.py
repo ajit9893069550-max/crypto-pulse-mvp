@@ -271,22 +271,31 @@ def api_analyze_chart():
     interval = data.get('interval', '4h') 
     
     try:
-        # Attempt to get the screenshot
+        # 1. Take Screenshot
         img = take_server_screenshot(symbol, interval)
-        
-        # If the function above raised an exception, we jump to the 'except' block below.
-        # If it returned None (but no exception), we catch it here:
         if not img: 
-            return jsonify({"error": "Screenshot returned Empty Data (Check Logs)"}), 500
+            return jsonify({"error": "Screenshot returned Empty Data"}), 500
 
-        # ... (Rest of your Gemini AI Code) ...
+        # 2. Prepare Prompt
         prompt = f"""
         You are a professional crypto trader. Analyze this {interval} chart for {symbol}.
         Return ONLY valid JSON with no extra text:
         {{ "trend": "Bullish/Bearish/Neutral", "support": "Price Level", "resistance": "Price Level", "signal": "BUY/SELL/WAIT", "reasoning": "Brief technical explanation (max 20 words)." }}
         """
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=[prompt, img])
+
+        # 3. Call AI (Switched to gemini-1.5-flash for better limits)
+        try:
+            response = client.models.generate_content(
+                model='gemini-1.5-flash', 
+                contents=[prompt, img]
+            )
+        except Exception as ai_error:
+            # Handle Rate Limits specifically
+            if "429" in str(ai_error):
+                return jsonify({"error": "AI is busy (Rate Limit). Please wait 1 minute."}), 429
+            raise ai_error
         
+        # 4. Parse Response
         text = re.sub(r"```json|```", "", response.text.strip()).strip()
         try: ai_data = json.loads(text)
         except: ai_data = {}
@@ -302,8 +311,7 @@ def api_analyze_chart():
         })
 
     except Exception as e:
-        # This will now print the REAL browser error to your screen
-        logger.error(f"AI/Browser Error: {e}")
+        logger.error(f"Analysis Failed: {e}")
         return jsonify({"error": str(e)}), 500
 
 # --- ROUTE: SEARCH PROXY ---
