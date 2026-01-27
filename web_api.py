@@ -18,6 +18,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from io import BytesIO
+import subprocess # Add this import at the top if missing
 
 # Load environment variables
 load_dotenv()
@@ -54,8 +55,7 @@ def take_server_screenshot(symbol, interval):
     """Captures a screenshot of the TradingView widget via Headless Chrome."""
     logger.info(f"📸 Server: Headless browser for {symbol} on {interval}...")
     
-    # 1. Define the correct path explicitly (Fallback for Render)
-    # This is where your render-build.sh put the file
+    # 1. Define the correct path explicitly
     hardcoded_path = "/opt/render/project/src/chrome/opt/google/chrome/google-chrome"
     
     # 2. Chrome Options
@@ -66,19 +66,32 @@ def take_server_screenshot(symbol, interval):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     
-    # 3. Find the Binary
-    env_bin = os.environ.get("CHROME_BIN")
-    if env_bin and os.path.exists(env_bin):
-        chrome_options.binary_location = env_bin
-        logger.info(f"✅ Using CHROME_BIN from Env: {env_bin}")
-    elif os.path.exists(hardcoded_path):
+    # 3. Set Binary Path
+    if os.path.exists(hardcoded_path):
         chrome_options.binary_location = hardcoded_path
-        logger.info(f"✅ Using Hardcoded Path: {hardcoded_path}")
+        logger.info(f"✅ Found Chrome Binary: {hardcoded_path}")
     else:
-        logger.warning("⚠️ No Custom Chrome found! Trying default system path...")
+        # Fallback for local testing
+        logger.warning("⚠️ Custom Chrome path not found, using system default.")
 
-    # 4. Generate HTML
-    # Full TV mapping logic...
+    # 4. AUTO-DETECT CHROME VERSION (The Fix)
+    try:
+        # Run "google-chrome --version" to get the exact version number
+        # Output looks like: "Google Chrome 144.0.7559.96"
+        process = subprocess.Popen(
+            [chrome_options.binary_location or "google-chrome", "--version"], 
+            stdout=subprocess.PIPE
+        )
+        version_output = process.communicate()[0].decode("utf-8").strip()
+        logger.info(f"🔍 System reports: {version_output}")
+        
+        # Extract the number (e.g., "144.0.7559.96")
+        chrome_version = version_output.split(" ")[2] 
+    except Exception as e:
+        logger.warning(f"⚠️ Could not detect version, defaulting to latest: {e}")
+        chrome_version = None # Manager will try to guess
+
+    # 5. Generate HTML (Same as before)
     mapping = {
         "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
         "1h": "60", "2h": "120", "4h": "240", "6h": "360", "8h": "480", "12h": "720",
@@ -120,22 +133,27 @@ def take_server_screenshot(symbol, interval):
 
     driver = None
     try:
-        service = Service(ChromeDriverManager().install())
+        # Install the driver MATCHING the detected version
+        if chrome_version:
+            driver_path = ChromeDriverManager(driver_version=chrome_version).install()
+        else:
+            driver_path = ChromeDriverManager().install()
+            
+        service = Service(driver_path)
         driver = webdriver.Chrome(service=service, options=chrome_options)
+        
         driver.get(file_url)
         time.sleep(4) 
         png_data = driver.get_screenshot_as_png()
         return PIL.Image.open(BytesIO(png_data))
         
     except Exception as e:
-        # CRITICAL: We now raise the error so the frontend sees it
         logger.error(f"Browser Critical Fail: {str(e)}")
         raise Exception(f"Browser Error: {str(e)}") 
         
     finally:
         if driver: driver.quit()
         if os.path.exists(temp_file): os.remove(temp_file)
-
 # ==============================================================================
 #  API ROUTES
 # ==============================================================================
