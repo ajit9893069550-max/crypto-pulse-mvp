@@ -5,7 +5,10 @@
 // 1. Global Keys
 window.TOKEN_KEY = 'supabase_token';
 window.USER_ID_KEY = 'user_id';
-window.supabaseClient = null;
+// Do not reset to null if it already exists (prevents overwrite on re-runs)
+if (!window.supabaseClient) {
+    window.supabaseClient = null;
+}
 
 // 2. Helper Functions
 function getToken() { return localStorage.getItem(window.TOKEN_KEY); }
@@ -23,8 +26,8 @@ async function initAuth() {
             window.BOT_USERNAME = cfg.BOT_USERNAME;
         }
 
-        // 2. Initialize Supabase
-        if (cfg.SUPABASE_URL && typeof supabase !== 'undefined') {
+        // 2. Initialize Supabase (FIXED: Added check !window.supabaseClient)
+        if (cfg.SUPABASE_URL && typeof supabase !== 'undefined' && !window.supabaseClient) {
             window.supabaseClient = supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_KEY);
         }
 

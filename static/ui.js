@@ -1,6 +1,6 @@
 /**
  * UI.JS - AlertDCX Pro Terminal
- * Fixes: Recurring Alert Visibility, Dropdown Colors
+ * Fixes: Recurring Alert Visibility, Dropdown Colors, AI Error Handling
  */
 
 // =========================================================
@@ -418,15 +418,24 @@ async function runAIAnalysis() {
     btn.innerText = "⏳ Analyzing..."; btn.disabled = true;
     try {
         const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: "BINANCE:" + currentSymbol, interval: tf }) });
+        
+        // FIX: Handle Server Errors (500) gracefully
+        if (!res.ok) {
+            throw new Error(`Server Error: ${res.status} (Likely Timeout)`);
+        }
+
         const data = await res.json();
         if(data.error) throw new Error(data.error);
+
         document.getElementById('ai-trend').innerText = data.trend;
         document.getElementById('ai-support').innerText = data.support;
         document.getElementById('ai-reasoning').innerText = data.reasoning;
         const sigBox = document.getElementById('ai-signal-box');
         sigBox.innerText = data.signal;
         sigBox.style.background = data.signal.includes('BUY') ? "#00c853" : (data.signal.includes('SELL') ? "#d50000" : "#ffd600");
-    } catch (e) { alert("Analysis Error: " + e.message); } 
+    } catch (e) { 
+        alert("Analysis Error: " + e.message + "\n(Try refreshing or selecting a lower timeframe)"); 
+    } 
     finally { btn.innerText = "✨ Analyze Chart"; btn.disabled = false; }
 }
 
