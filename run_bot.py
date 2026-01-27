@@ -1,15 +1,14 @@
 import asyncio
 import logging
 import os
+import gc
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from supabase import create_client, Client
 from dotenv import load_dotenv
-import gc
 
 # --- UPDATED IMPORTS ---
-# We now import the Class, not the individual functions
 from strategy_engine import StrategyEngine 
 from new_alert_engine import analyze_asset, check_alerts, close_exchange
 
@@ -126,9 +125,6 @@ async def strategy_loop():
     """Runs complex strategies every hour at minute 02 (e.g., 09:02, 10:02)."""
     logger.info("♟️ Strategy Engine Started (Aligned to XX:02)...")
     
-    # Initialize the Class-based Engine
-    engine = StrategyEngine()
-
     while True:
         try:
             # 1. Calculate time until next XX:02
@@ -146,14 +142,21 @@ async def strategy_loop():
             logger.info(f"♟️ Strategy sleeping {int(wait_seconds)}s until {target_time.strftime('%H:%M')}...")
             await asyncio.sleep(wait_seconds)
             
-            # 2. Run All Strategies (Unlock + Bullish 200MA)
+            # --- AGGRESSIVE MEMORY MANAGEMENT START ---
+            # 2. CREATE ENGINE TEMPORARILY
+            logger.info("⚙️ Initializing Engine...")
+            engine = StrategyEngine() 
+            
+            # 3. Run All Strategies (Unlock + Bullish 200MA)
             await engine.run_all()
             
-            # 3. CRITICAL: Force Memory Cleanup
-            gc.collect()  
-            logger.info("🧹 Memory Cleaned.")
+            # 4. DESTROY ENGINE & CLEANUP
+            logger.info("🗑️ Destroying Engine to free RAM...")
+            del engine 
+            gc.collect() # Force RAM release
+            # --- AGGRESSIVE MEMORY MANAGEMENT END ---
             
-            # 4. Buffer to ensure we don't double-trigger (sleep 60s)
+            # 5. Buffer to ensure we don't double-trigger (sleep 60s)
             await asyncio.sleep(60)
 
         except Exception as e:
@@ -185,8 +188,6 @@ async def main():
     finally:
         await application.stop()
         await close_exchange()
-        # Note: StrategyEngine closes its own connection inside run_all automatically, 
-        # or we could make engine global and close it here if persistent.
 
 if __name__ == "__main__":
     try:
