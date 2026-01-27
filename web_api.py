@@ -128,6 +128,11 @@ def take_server_screenshot(symbol, interval):
 #  API ROUTES
 # ==============================================================================
 
+@app.route('/healthz', methods=['GET'])
+def health_check():
+    return jsonify({"status": "ok"}), 200
+
+
 @app.route('/api/config')
 def api_config():
     return jsonify({
