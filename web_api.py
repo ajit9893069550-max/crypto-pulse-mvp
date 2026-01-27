@@ -283,16 +283,20 @@ def api_analyze_chart():
         {{ "trend": "Bullish/Bearish/Neutral", "support": "Price Level", "resistance": "Price Level", "signal": "BUY/SELL/WAIT", "reasoning": "Brief technical explanation (max 20 words)." }}
         """
 
-        # 3. Call AI (Switched to gemini-1.5-flash for better limits)
+        # 3. Call AI (UPDATED MODEL NAME)
         try:
+            # gemini-1.5-flash is retired. using gemini-2.0-flash
             response = client.models.generate_content(
-                model='gemini-1.5-flash', 
+                model='gemini-2.0-flash', 
                 contents=[prompt, img]
             )
         except Exception as ai_error:
             # Handle Rate Limits specifically
             if "429" in str(ai_error):
                 return jsonify({"error": "AI is busy (Rate Limit). Please wait 1 minute."}), 429
+            # Handle Model Not Found specifically
+            if "404" in str(ai_error):
+                return jsonify({"error": "AI Model not found. Please update model name."}), 404
             raise ai_error
         
         # 4. Parse Response
