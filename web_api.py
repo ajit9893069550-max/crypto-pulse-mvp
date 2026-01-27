@@ -54,33 +54,40 @@ def take_server_screenshot(symbol, interval):
     """Captures a screenshot of the TradingView widget via Headless Chrome."""
     logger.info(f"📸 Server: Headless browser for {symbol} on {interval}...")
     
-    # 1. Full TradingView Timeframe Mapping
+    # 1. Define the correct path explicitly (Fallback for Render)
+    # This is where your render-build.sh put the file
+    hardcoded_path = "/opt/render/project/src/chrome/opt/google/chrome/google-chrome"
+    
+    # 2. Chrome Options
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new") 
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    
+    # 3. Find the Binary
+    env_bin = os.environ.get("CHROME_BIN")
+    if env_bin and os.path.exists(env_bin):
+        chrome_options.binary_location = env_bin
+        logger.info(f"✅ Using CHROME_BIN from Env: {env_bin}")
+    elif os.path.exists(hardcoded_path):
+        chrome_options.binary_location = hardcoded_path
+        logger.info(f"✅ Using Hardcoded Path: {hardcoded_path}")
+    else:
+        logger.warning("⚠️ No Custom Chrome found! Trying default system path...")
+
+    # 4. Generate HTML
+    # Full TV mapping logic...
     mapping = {
         "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
         "1h": "60", "2h": "120", "4h": "240", "6h": "360", "8h": "480", "12h": "720",
         "1d": "D", "3d": "3D", "1w": "W", "1m_month": "1M" 
     }
-    
-    # Normalize input
     norm_interval = interval.lower()
-    if interval == "1M": norm_interval = "1m_month" # Handle 1 Minute vs 1 Month confusion
-    
-    tv_interval = mapping.get(norm_interval, "240") # Default to 4h if unknown
+    if interval == "1M": norm_interval = "1m_month"
+    tv_interval = mapping.get(norm_interval, "240")
 
-    # 2. Chrome Options (CRITICAL FOR RENDER)
-    chrome_options = Options()
-    chrome_options.add_argument("--headless=new") # Updated headless mode
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage") # Prevents memory crashes on Render
-
-    # 3. Connect to the Chrome Binary we installed via render-build.sh
-    chrome_binary = os.environ.get("CHROME_BIN")
-    if chrome_binary:
-        chrome_options.binary_location = chrome_binary
-
-    # 4. Minimal HTML to load TradingView
     html_content = f"""
     <html>
     <body style="margin:0; background:#131722; overflow:hidden;">
@@ -109,8 +116,6 @@ def take_server_screenshot(symbol, interval):
 
     temp_file = os.path.abspath("temp_chart.html")
     with open(temp_file, "w") as f: f.write(html_content)
-    
-    # Generate proper file URL for cross-platform compatibility
     file_url = pathlib.Path(temp_file).as_uri()
 
     driver = None
@@ -118,12 +123,15 @@ def take_server_screenshot(symbol, interval):
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.get(file_url)
-        time.sleep(3.5) # Wait for chart + indicators to render
+        time.sleep(4) 
         png_data = driver.get_screenshot_as_png()
         return PIL.Image.open(BytesIO(png_data))
+        
     except Exception as e:
-        logger.error(f"Browser Error: {e}")
-        return None
+        # CRITICAL: We now raise the error so the frontend sees it
+        logger.error(f"Browser Critical Fail: {str(e)}")
+        raise Exception(f"Browser Error: {str(e)}") 
+        
     finally:
         if driver: driver.quit()
         if os.path.exists(temp_file): os.remove(temp_file)
@@ -245,9 +253,15 @@ def api_analyze_chart():
     interval = data.get('interval', '4h') 
     
     try:
+        # Attempt to get the screenshot
         img = take_server_screenshot(symbol, interval)
-        if not img: return jsonify({"error": "Failed to capture screenshot"}), 500
+        
+        # If the function above raised an exception, we jump to the 'except' block below.
+        # If it returned None (but no exception), we catch it here:
+        if not img: 
+            return jsonify({"error": "Screenshot returned Empty Data (Check Logs)"}), 500
 
+        # ... (Rest of your Gemini AI Code) ...
         prompt = f"""
         You are a professional crypto trader. Analyze this {interval} chart for {symbol}.
         Return ONLY valid JSON with no extra text:
@@ -255,12 +269,10 @@ def api_analyze_chart():
         """
         response = client.models.generate_content(model='gemini-2.0-flash', contents=[prompt, img])
         
-        # Clean response
         text = re.sub(r"```json|```", "", response.text.strip()).strip()
         try: ai_data = json.loads(text)
         except: ai_data = {}
         
-        # Standardize keys to lowercase
         data = {k.lower(): v for k, v in ai_data.items()}
         
         return jsonify({
@@ -272,7 +284,8 @@ def api_analyze_chart():
         })
 
     except Exception as e:
-        logger.error(f"AI Error: {e}")
+        # This will now print the REAL browser error to your screen
+        logger.error(f"AI/Browser Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 # --- ROUTE: SEARCH PROXY ---
