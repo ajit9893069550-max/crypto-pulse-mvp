@@ -7,13 +7,14 @@ echo "1. Installing Basic Dependencies..."
 pip install --upgrade pip
 pip install -r requirements.txt
 
-echo "2. Manually Installing Pandas-TA..."
-# Clone directly to avoid pip git auth issues
-if [ -d "pandas-ta" ]; then rm -rf pandas-ta; fi
-git clone https://github.com/twopirllc/pandas-ta.git
-cd pandas-ta
+echo "2. Installing Pandas-TA from Zip (No Git)..."
+wget https://github.com/twopirllc/pandas-ta/archive/refs/heads/development.zip -O pandas_ta.zip
+unzip pandas_ta.zip
+cd pandas-ta-development
 pip install .
 cd ..
+rm pandas_ta.zip
+rm -rf pandas-ta-development
 
 echo "3. Installing Chrome..."
 mkdir -p $STORAGE_DIR
