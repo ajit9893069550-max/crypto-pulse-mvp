@@ -1,6 +1,6 @@
 /**
  * UI.JS - AlertDCX Pro Terminal
- * Fixes: Recurring Alert Visibility, Dropdown Colors, AI Error Handling
+ * Handles: Charts, Signal Display, Alert Modal, and AI Forecasts
  */
 
 // =========================================================
@@ -13,18 +13,13 @@ let currentSymbol = 'BTCUSDT';
 
 // Signal Definitions
 const SIGNAL_DEFINITIONS = {
-    'ALL': "Monitoring high-probability setups.",
-    'SNIPER_BUY_REVERSAL': "Price < Support AND RSI < 30 AND Vol > 200%. (Reversal)",
-    'SNIPER_SELL_REJECTION': "Price > Resistance AND RSI > 70 AND Vol > 200%. (Rejection)",
-    'MOMENTUM_BREAKOUT': "Price breaks range AND Vol > 200% AND MACD Cross.",
-    'GOLDEN_CROSS': "50 SMA crosses above 200 SMA (Bull Market Start).",
-    'DEATH_CROSS': "50 SMA crosses below 200 SMA (Bear Market Start).",
-    'VOLUME_SURGE': "Unusual whale activity detected (>3x Avg Vol).",
-    'RSI_OVERSOLD': "RSI is below 30. Asset is undervalued.",
-    'RSI_OVERBOUGHT': "RSI is above 70. Asset is overvalued.",
-    'MACD_BULL_CROSS': "Momentum shifting to bullish.",
-    'STRATEGY_UNLOCK_SHORT': "Unlock Strategy: High inflation token + BB Rejection.",
-    'STRATEGY_BULLISH_200MA_RSI': "Trend Pullback: Price > 200MA + RSI Dip + Green Candle.", 
+    'ALL': "Monitoring active signals.",
+    'SUPERTREND_BUY': "Supertrend (Green) + ADX > 20 + High Volume + RSI < 70.",
+    'GOLDEN_CROSS': "50 SMA crosses above 200 SMA (Bullish Trend Start).",
+    'DEATH_CROSS': "50 SMA crosses below 200 SMA (Bearish Trend Start).",
+    'STRATEGY_UNLOCK_SHORT': "Token Unlock Event: Price rejected at Upper Bollinger Band.",
+    'STRATEGY_BULLISH_200MA_RSI': "Trend Pullback: Price > 200MA + RSI Oversold (<35).",
+    'STRATEGY_BEARISH_200MA_RSI': "Trend Rally: Price < 200MA + RSI Overbought (>65).",
 };
 
 // Strategy Map
@@ -33,17 +28,18 @@ const STRATEGY_SIGNAL_MAP = {
     'bullish-200ma-rsi': 'STRATEGY_BULLISH_200MA_RSI'
 };
 
-// TradingView Templates
+// TradingView Indicator Templates
 const STUDY_MAP = {
-    'RSI_OVERSOLD':        ['RSI@tv-basicstudies'],
-    'GOLDEN_CROSS':        ['MASimple@tv-basicstudies', 'MASimple@tv-basicstudies'], 
-    'STRATEGY_UNLOCK_SHORT': ['BB@tv-basicstudies'],
+    'SUPERTREND_BUY':           ['SuperTrend@tv-basicstudies', 'RSI@tv-basicstudies'],
+    'GOLDEN_CROSS':             ['MASimple@tv-basicstudies', 'MASimple@tv-basicstudies'], 
+    'DEATH_CROSS':              ['MASimple@tv-basicstudies', 'MASimple@tv-basicstudies'], 
+    'STRATEGY_UNLOCK_SHORT':    ['BB@tv-basicstudies'],
     'STRATEGY_BULLISH_200MA_RSI': ['MASimple@tv-basicstudies', 'RSI@tv-basicstudies']
 };
 
 
 // =========================================================
-// 2. VIEW NAVIGATION
+// 2. VIEW NAVIGATION & CHARTING
 // =========================================================
 
 function loadChartView(symbol, interval = null, signalType = 'NONE') {
@@ -52,17 +48,14 @@ function loadChartView(symbol, interval = null, signalType = 'NONE') {
     }
     currentSymbol = symbol;
     
-    // Get interval from dropdown if not provided
     if (!interval) {
         const tfSelect = document.getElementById('ai-timeframe-select');
-        interval = tfSelect ? tfSelect.value : '240';
+        interval = tfSelect ? tfSelect.value : '240'; 
     }
 
-    // Map to TV format
     const map = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D', '1w': 'W' };
     const tvInterval = map[interval] || '240';
 
-    // Toggle Views
     document.getElementById('chart-view').style.display = 'flex';
     document.getElementById('signal-view').style.display = 'none';
     document.getElementById('panel-ai').style.display = 'block';
@@ -70,8 +63,8 @@ function loadChartView(symbol, interval = null, signalType = 'NONE') {
 
     resetAIPanel();
 
-    // Load Chart
     const indicators = STUDY_MAP[signalType] || [];
+    
     if (window.TradingView) {
         document.getElementById('tradingview_chart_area').innerHTML = ""; 
         new TradingView.widget({
@@ -141,7 +134,7 @@ function switchSidebarTab(tabName) {
 }
 
 // =========================================================
-// 2. BULK ALERTS (FIXED: Recurring Alert Visible)
+// 3. BULK ALERTS
 // =========================================================
 
 function openCreateAlertModal() {
@@ -152,15 +145,14 @@ function openCreateAlertModal() {
     if(title) title.innerText = "🔔 Create Bulk Alerts";
 
     const coins = ['BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'BNB', 'DOGE', 'ENA', 'STRK', 'ZK'];
-    const timeframes = ['15m', '1h', '4h'];
+    const timeframes = ['1h', '4h', '1d']; 
     
     const signals = [
         {val: 'PRICE_TARGET', label: 'Price Target (Exact)'},
+        {val: 'SUPERTREND_BUY', label: 'Supertrend Buy (Momentum)'},
         {val: 'GOLDEN_CROSS', label: 'Golden Cross (Bullish)'},
         {val: 'DEATH_CROSS', label: 'Death Cross (Bearish)'},
-        {val: 'RSI_OVERSOLD', label: 'RSI Oversold (<30)'},
-        {val: 'RSI_OVERBOUGHT', label: 'RSI Overbought (>70)'},
-        {val: 'STRATEGY_UNLOCK_SHORT', label: 'Unlock Strategy Short'},
+        {val: 'STRATEGY_UNLOCK_SHORT', label: 'Unlock Short (Vesting)'},
         {val: 'STRATEGY_BULLISH_200MA_RSI', label: 'Bullish 200MA Pullback'} 
     ];
 
@@ -184,21 +176,18 @@ function openCreateAlertModal() {
 
     content.innerHTML = `
         <div style="padding: 20px; color: white;">
-            
             <div style="margin-bottom: 20px;">
                 <label style="color:#888; font-size:12px; display:block; margin-bottom:8px; font-weight:bold;">1. SELECT ASSETS</label>
                 <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; max-height: 150px; overflow-y: auto;">
                     ${coinHtml}
                 </div>
             </div>
-
             <div style="margin-bottom: 20px;">
                 <label style="color:#888; font-size:12px; display:block; margin-bottom:8px; font-weight:bold;">2. TIMEFRAMES</label>
                 <div style="display: flex; gap: 10px;">
                     ${tfHtml}
                 </div>
             </div>
-
             <div class="input-group" style="margin-bottom: 20px;">
                 <label style="color:#888; font-size:12px; display:block; margin-bottom:8px; font-weight:bold;">3. CONDITION</label>
                 <select id="newAlertSignal" onchange="toggleBulkPriceInput(this.value)" 
@@ -206,23 +195,19 @@ function openCreateAlertModal() {
                     ${signalOptions}
                 </select>
             </div>
-
             <div id="bulkPriceGroup" class="input-group" style="margin-bottom: 20px;">
                 <label style="color:#888; font-size:12px; display:block; margin-bottom:8px;">Target Price ($)</label>
                 <input type="number" id="newAlertPrice" placeholder="e.g. 65000" step="any" 
                     style="width:100%; padding:12px; background-color:#1e222d; color:white; border:1px solid #444; border-radius:6px; outline:none;">
             </div>
-
             <div style="margin-bottom: 25px; display: flex; align-items: center;">
                 <input type="checkbox" id="newAlertRecurring" style="width:16px; height:16px; accent-color:#00ff88; cursor:pointer;">
                 <label for="newAlertRecurring" style="margin-left: 10px; color: white; font-size: 14px; cursor:pointer;">Recurring Alert</label>
             </div>
-
             <div style="display: flex; gap: 10px; margin-top:30px;">
                 <button onclick="closeModal()" style="flex:1; padding: 12px; background: transparent; border: 1px solid #444; color: #888; border-radius: 6px; cursor: pointer;">Cancel</button>
                 <button id="btnSaveAlert" onclick="submitBulkAlerts()" class="btn-create" style="flex:2; border-radius:6px; background:#00ff88; color:black; font-weight:bold; border:none;">Create Alerts</button>
             </div>
-            
             <div id="bulkProgress" style="margin-top:15px; text-align:center; color:#00ff88; font-size:13px; display:none;"></div>
         </div>
     `;
@@ -288,7 +273,7 @@ async function submitBulkAlerts() {
 }
 
 // =========================================================
-// 3. REST OF LOGIC (DATA, AI, WATCHLIST)
+// 4. DATA FETCHING & DISPLAY
 // =========================================================
 
 async function refreshSignals(type) {
@@ -301,7 +286,7 @@ async function refreshSignals(type) {
     if(!data.length) { list.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#888;">No active signals found.</td></tr>'; return; }
 
     list.innerHTML = data.map(s => {
-        const isBull = s.signal_type.includes('BUY') || s.signal_type.includes('BULL') || s.signal_type.includes('GOLDEN');
+        const isBull = s.signal_type.includes('BUY') || s.signal_type.includes('BULL') || s.signal_type.includes('GOLDEN') || s.signal_type.includes('SUPERTREND');
         return `
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); cursor:pointer;" onclick="loadChartView('${s.asset.replace('/','')}', '60', '${s.signal_type}')">
             <td style="padding:15px; font-weight:bold;">${s.asset.replace('/USDT','')}</td>
@@ -356,7 +341,62 @@ async function refreshAlerts() {
         </div>`).join('');
 }
 
-// --- WATCHLIST, TICKER & HELPERS ---
+// =========================================================
+// 5. AI & UTILS (UPDATED timeAgo FUNCTION)
+// =========================================================
+
+function resetAIPanel() {
+    if(document.getElementById('ai-trend')) {
+        document.getElementById('ai-trend').innerText = "--";
+        document.getElementById('ai-support').innerText = "--";
+        document.getElementById('ai-signal-box').innerText = "READY";
+        document.getElementById('ai-signal-box').style.background = "#333";
+    }
+}
+
+async function runAIAnalysis() {
+    const btn = document.getElementById('analyze-btn');
+    const tf = document.getElementById('ai-timeframe-select').value;
+    btn.innerText = "⏳ Forecasting..."; btn.disabled = true;
+    try {
+        const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: "BINANCE:" + currentSymbol, interval: tf }) });
+        
+        if (!res.ok) {
+            throw new Error(`Server Error: ${res.status} (Likely Timeout)`);
+        }
+
+        const data = await res.json();
+        if(data.error) throw new Error(data.error);
+
+        document.getElementById('ai-trend').innerText = data.trend;
+        document.getElementById('ai-support').innerText = data.support;
+        
+        const sigBox = document.getElementById('ai-signal-box');
+        sigBox.innerText = data.signal;
+        sigBox.style.background = data.signal.includes('BUY') ? "#00c853" : (data.signal.includes('SELL') ? "#d50000" : "#ffd600");
+    } catch (e) { 
+        alert("Forecast Error: " + e.message + "\n(Try refreshing or selecting a lower timeframe)"); 
+    } 
+    finally { btn.innerText = "✨ Run Prediction"; btn.disabled = false; }
+}
+
+// FIX: Improved Time Ago function
+function timeAgo(dateString) {
+    const diff = new Date() - new Date(dateString);
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) return `${days}d ${hours % 24}h ago`;
+    if (hours > 0) return `${hours}h ${minutes % 60}m ago`;
+    return `${minutes}m ago`;
+}
+
+function cleanSignalName(name) { return name ? name.replace(/_/g, ' ').replace('STRATEGY', '').trim() : ''; }
+function closeModal() { document.getElementById('chartModal').style.display = 'none'; }
+async function handleDeleteAlert(id) { if (confirm("Stop receiving this alert?")) { await API.deleteAlert(id); refreshAlerts(); } }
+
+// --- WATCHLIST & TICKER ---
 function getWatchlist() { return JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]'); }
 function renderWatchlist() {
     const list = getWatchlist().length ? getWatchlist() : DEFAULT_WATCHLIST;
@@ -403,47 +443,7 @@ async function updateTelegramUI() {
     }
 }
 
-function resetAIPanel() {
-    if(document.getElementById('ai-trend')) {
-        document.getElementById('ai-trend').innerText = "--";
-        document.getElementById('ai-support').innerText = "--";
-        document.getElementById('ai-signal-box').innerText = "READY";
-        document.getElementById('ai-signal-box').style.background = "#333";
-    }
-}
-
-async function runAIAnalysis() {
-    const btn = document.getElementById('analyze-btn');
-    const tf = document.getElementById('ai-timeframe-select').value;
-    btn.innerText = "⏳ Analyzing..."; btn.disabled = true;
-    try {
-        const res = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ symbol: "BINANCE:" + currentSymbol, interval: tf }) });
-        
-        // FIX: Handle Server Errors (500) gracefully
-        if (!res.ok) {
-            throw new Error(`Server Error: ${res.status} (Likely Timeout)`);
-        }
-
-        const data = await res.json();
-        if(data.error) throw new Error(data.error);
-
-        document.getElementById('ai-trend').innerText = data.trend;
-        document.getElementById('ai-support').innerText = data.support;
-        document.getElementById('ai-reasoning').innerText = data.reasoning;
-        const sigBox = document.getElementById('ai-signal-box');
-        sigBox.innerText = data.signal;
-        sigBox.style.background = data.signal.includes('BUY') ? "#00c853" : (data.signal.includes('SELL') ? "#d50000" : "#ffd600");
-    } catch (e) { 
-        alert("Analysis Error: " + e.message + "\n(Try refreshing or selecting a lower timeframe)"); 
-    } 
-    finally { btn.innerText = "✨ Analyze Chart"; btn.disabled = false; }
-}
-
-function timeAgo(dateString) { return Math.floor((new Date() - new Date(dateString)) / 60000) + "m ago"; }
-function cleanSignalName(name) { return name ? name.replace(/_/g, ' ').replace('STRATEGY', '').trim() : ''; }
-function closeModal() { document.getElementById('chartModal').style.display = 'none'; }
-async function handleDeleteAlert(id) { if (confirm("Stop receiving this alert?")) { await API.deleteAlert(id); refreshAlerts(); } }
-
+// INITIALIZATION
 document.addEventListener('DOMContentLoaded', async () => {
     await initAuth();
     renderWatchlist();

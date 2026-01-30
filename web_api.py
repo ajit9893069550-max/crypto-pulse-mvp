@@ -4,21 +4,16 @@ import json
 import re
 import requests
 import logging
-import pathlib
+import pandas as pd
+import ccxt
 from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
-# --- AI & BROWSER IMPORTS ---
+# --- AI & ANALYTICS IMPORTS ---
 from google import genai
-import PIL.Image
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from io import BytesIO
-import subprocess # Add this import at the top if missing
+from nixtla import NixtlaClient
 
 # Load environment variables
 load_dotenv()
@@ -31,129 +26,110 @@ CORS(app)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("WebAPI")
 
-# Setup Supabase
+# Setup Keys & Clients
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ.get("SUPABASE_KEY")
 BOT_USERNAME = os.environ.get("BOT_USERNAME", "CryptoPulse_Bot")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+NIXTLA_API_KEY = os.environ.get("NIXTLA_API_KEY")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     logger.critical("❌ Missing Supabase Config!")
     exit(1)
 
-if not GEMINI_API_KEY:
-    logger.warning("⚠️ GEMINI_API_KEY is missing! AI Analysis features will not work.")
-
+# Initialize Clients
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-# ==============================================================================
-#  AI & CHARTING FUNCTIONS (Helper Logic)
-# ==============================================================================
-
-def take_server_screenshot(symbol, interval):
-    """Captures a screenshot of the TradingView widget via Headless Chrome."""
-    logger.info(f"📸 Server: Headless browser for {symbol} on {interval}...")
-    
-    # 1. Define the correct path explicitly
-    hardcoded_path = "/opt/render/project/src/chrome/opt/google/chrome/google-chrome"
-    
-    # 2. Chrome Options
-    chrome_options = Options()
-    chrome_options.add_argument("--headless=new") 
-    chrome_options.add_argument("--window-size=1920,1080")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    
-    # 3. Set Binary Path
-    if os.path.exists(hardcoded_path):
-        chrome_options.binary_location = hardcoded_path
-        logger.info(f"✅ Found Chrome Binary: {hardcoded_path}")
-    else:
-        # Fallback for local testing
-        logger.warning("⚠️ Custom Chrome path not found, using system default.")
-
-    # 4. AUTO-DETECT CHROME VERSION (The Fix)
+# Gemini Client
+client = None
+if GEMINI_API_KEY:
     try:
-        # Run "google-chrome --version" to get the exact version number
-        # Output looks like: "Google Chrome 144.0.7559.96"
-        process = subprocess.Popen(
-            [chrome_options.binary_location or "google-chrome", "--version"], 
-            stdout=subprocess.PIPE
-        )
-        version_output = process.communicate()[0].decode("utf-8").strip()
-        logger.info(f"🔍 System reports: {version_output}")
-        
-        # Extract the number (e.g., "144.0.7559.96")
-        chrome_version = version_output.split(" ")[2] 
+        client = genai.Client(api_key=GEMINI_API_KEY)
     except Exception as e:
-        logger.warning(f"⚠️ Could not detect version, defaulting to latest: {e}")
-        chrome_version = None # Manager will try to guess
+        logger.error(f"Gemini Init Error: {e}")
 
-    # 5. Generate HTML (Same as before)
-    mapping = {
-        "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30",
-        "1h": "60", "2h": "120", "4h": "240", "6h": "360", "8h": "480", "12h": "720",
-        "1d": "D", "3d": "3D", "1w": "W", "1m_month": "1M" 
-    }
-    norm_interval = interval.lower()
-    if interval == "1M": norm_interval = "1m_month"
-    tv_interval = mapping.get(norm_interval, "240")
+# Nixtla Client (For Price Prediction)
+nixtla_client = None
+if NIXTLA_API_KEY:
+    try:
+        nixtla_client = NixtlaClient(api_key=NIXTLA_API_KEY)
+    except Exception as e:
+        logger.error(f"Nixtla Init Error: {e}")
+else:
+    logger.warning("⚠️ NIXTLA_API_KEY is missing! Price predictions will not work.")
 
-    html_content = f"""
-    <html>
-    <body style="margin:0; background:#131722; overflow:hidden;">
-        <div class="tradingview-widget-container" style="height:100vh; width:100vw;">
-            <div id="tradingview_widget"></div>
-            <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-            <script type="text/javascript">
-            new TradingView.widget({{
-                "autosize": true,
-                "symbol": "{symbol}",
-                "interval": "{tv_interval}",
-                "timezone": "Asia/Kolkata",
-                "theme": "dark",
-                "style": "1",
-                "locale": "en",
-                "enable_publishing": false,
-                "hide_side_toolbar": true,
-                "container_id": "tradingview_widget",
-                "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies", "BB@tv-basicstudies"]
-            }});
-            </script>
-        </div>
-    </body>
-    </html>
+# CCXT Exchange (For fetching historical data for Nixtla)
+exchange = ccxt.binance({'enableRateLimit': True})
+
+# ==============================================================================
+#  HELPER FUNCTIONS (Nixtla & Data Fetching)
+# ==============================================================================
+
+def fetch_ohlcv_data(symbol, timeframe='4h', limit=500):
     """
-
-    temp_file = os.path.abspath("temp_chart.html")
-    with open(temp_file, "w") as f: f.write(html_content)
-    file_url = pathlib.Path(temp_file).as_uri()
-
-    driver = None
+    Fetches historical candle data using CCXT (Binance).
+    Returns a DataFrame formatted for Nixtla (ds, y).
+    """
     try:
-        # Install the driver MATCHING the detected version
-        if chrome_version:
-            driver_path = ChromeDriverManager(driver_version=chrome_version).install()
-        else:
-            driver_path = ChromeDriverManager().install()
-            
-        service = Service(driver_path)
-        driver = webdriver.Chrome(service=service, options=chrome_options)
+        # Normalize symbol for CCXT (e.g. "BINANCE:BTCUSDT" -> "BTC/USDT")
+        clean_symbol = symbol.replace('BINANCE:', '').replace(':', '')
+        if '/' not in clean_symbol and 'USDT' in clean_symbol:
+            clean_symbol = clean_symbol.replace('USDT', '/USDT')
         
-        driver.get(file_url)
-        time.sleep(4) 
-        png_data = driver.get_screenshot_as_png()
-        return PIL.Image.open(BytesIO(png_data))
+        # Normalize timeframe (e.g. "1D" -> "1d")
+        timeframe = timeframe.lower()
+        
+        # Fetch Data
+        ohlcv = exchange.fetch_ohlcv(clean_symbol, timeframe, limit=limit)
+        
+        # Convert to Pandas DataFrame
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        
+        # Format for Nixtla: 'ds' (Date) and 'y' (Target Value/Close Price)
+        nixtla_df = df[['timestamp', 'close']].rename(columns={'timestamp': 'ds', 'close': 'y'})
+        return nixtla_df, clean_symbol
         
     except Exception as e:
-        logger.error(f"Browser Critical Fail: {str(e)}")
-        raise Exception(f"Browser Error: {str(e)}") 
+        logger.error(f"Data Fetch Error: {e}")
+        return None, symbol
+
+def get_nixtla_prediction(symbol, timeframe):
+    """
+    Uses Nixtla TimeGPT to predict the next price points.
+    """
+    if not nixtla_client:
+        return "Nixtla API Key missing. Prediction unavailable."
+
+    df, clean_symbol = fetch_ohlcv_data(symbol, timeframe)
+    if df is None or df.empty:
+        return "Not enough historical data for prediction."
+
+    try:
+        # Predict the next 12 periods (horizon)
+        # freq='H' for hourly, 'D' for daily, etc. logic handled by Nixtla auto-infer or we pass simple freq
+        forecast_df = nixtla_client.forecast(df=df, h=12, level=[80, 90])
         
-    finally:
-        if driver: driver.quit()
-        if os.path.exists(temp_file): os.remove(temp_file)
+        # Extract key insights
+        current_price = df['y'].iloc[-1]
+        future_price = forecast_df['TimeGPT'].iloc[-1]
+        
+        trend_direction = "UP" if future_price > current_price else "DOWN"
+        pct_change = ((future_price - current_price) / current_price) * 100
+        
+        summary = f"""
+        Quantitative Forecast for {clean_symbol} ({timeframe}):
+        - Current Price: ${current_price:.2f}
+        - Predicted Price (+12 candles): ${future_price:.2f}
+        - Direction: {trend_direction} ({pct_change:.2f}%)
+        - 80% Confidence Interval: ${forecast_df['TimeGPT-lo-80'].iloc[-1]:.2f} to ${forecast_df['TimeGPT-hi-80'].iloc[-1]:.2f}
+        """
+        return summary
+
+    except Exception as e:
+        logger.error(f"Nixtla Prediction Failed: {e}")
+        return f"Prediction Error: {str(e)}"
+
 # ==============================================================================
 #  API ROUTES
 # ==============================================================================
@@ -161,7 +137,6 @@ def take_server_screenshot(symbol, interval):
 @app.route('/healthz', methods=['GET'])
 def health_check():
     return jsonify({"status": "ok"}), 200
-
 
 @app.route('/api/config')
 def api_config():
@@ -261,7 +236,7 @@ def api_strategies():
         logger.error(f"Strategy API Error: {e}")
         return jsonify([])
 
-# --- ROUTE: AI ANALYSIS ---
+# --- ROUTE: AI ANALYSIS (UPDATED: Uses Nixtla + Gemini, No Screenshots) ---
 @app.route('/api/analyze', methods=['POST'])
 def api_analyze_chart():
     if not client: return jsonify({"error": "Gemini API Key missing"}), 500
@@ -271,32 +246,40 @@ def api_analyze_chart():
     interval = data.get('interval', '4h') 
     
     try:
-        # 1. Take Screenshot
-        img = take_server_screenshot(symbol, interval)
-        if not img: 
-            return jsonify({"error": "Screenshot returned Empty Data"}), 500
-
-        # 2. Prepare Prompt
+        # 1. Get Mathematical Forecast from Nixtla
+        nixtla_summary = get_nixtla_prediction(symbol, interval)
+        
+        # 2. Prepare Prompt for Gemini
+        # We pass the exact math from Nixtla so Gemini doesn't hallucinate numbers
         prompt = f"""
-        You are a professional crypto trader. Analyze this {interval} chart for {symbol}.
+        You are a professional crypto trader. 
+        I have run a quantitative prediction model (TimeGPT) for {symbol} on the {interval} timeframe.
+        
+        Here is the data:
+        {nixtla_summary}
+        
+        Based on this quantitative forecast, provide a structured trading signal.
         Return ONLY valid JSON with no extra text:
-        {{ "trend": "Bullish/Bearish/Neutral", "support": "Price Level", "resistance": "Price Level", "signal": "BUY/SELL/WAIT", "reasoning": "Brief technical explanation (max 20 words)." }}
+        {{ 
+            "trend": "Bullish/Bearish/Neutral", 
+            "support": "Estimated Support Level", 
+            "resistance": "Estimated Resistance Level", 
+            "signal": "BUY/SELL/WAIT", 
+            "reasoning": "Brief technical explanation combining the forecast with general market structure (max 20 words)." 
+        }}
         """
 
-        # 3. Call AI (UPDATED MODEL NAME)
+        # 3. Call AI (Using updated model name)
         try:
-            # gemini-1.5-flash is retired. using gemini-2.0-flash
             response = client.models.generate_content(
                 model='gemini-2.0-flash', 
-                contents=[prompt, img]
+                contents=[prompt]
             )
         except Exception as ai_error:
-            # Handle Rate Limits specifically
             if "429" in str(ai_error):
-                return jsonify({"error": "AI is busy (Rate Limit). Please wait 1 minute."}), 429
-            # Handle Model Not Found specifically
+                return jsonify({"error": "AI Rate Limit. Please wait."}), 429
             if "404" in str(ai_error):
-                return jsonify({"error": "AI Model not found. Please update model name."}), 404
+                return jsonify({"error": "AI Model Not Found."}), 404
             raise ai_error
         
         # 4. Parse Response

@@ -74,17 +74,17 @@
             <div id="tab-signals" class="tab-content">
                 <ul id="signalFilters" class="sidebar-nav">
                     <li class="nav-item active" data-type="ALL" onclick="loadSignalView('ALL')">🌍 All Signals</li>
-                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Sniper</p>
-                    <li class="nav-item" data-type="SNIPER_BUY_REVERSAL" onclick="loadSignalView('SNIPER_BUY_REVERSAL')">🎯 Sniper Buy</li>
-                    <li class="nav-item" data-type="SNIPER_SELL_REJECTION" onclick="loadSignalView('SNIPER_SELL_REJECTION')">🛑 Sniper Sell</li>
+                    
+                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Supertrend Strategy</p>
+                    <li class="nav-item" data-type="SUPERTREND_BUY" onclick="loadSignalView('SUPERTREND_BUY')">🚀 Supertrend Buy</li>
                     
                     <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Trend</p>
                     <li class="nav-item" data-type="GOLDEN_CROSS" onclick="loadSignalView('GOLDEN_CROSS')">🟡 Golden Cross</li>
                     <li class="nav-item" data-type="DEATH_CROSS" onclick="loadSignalView('DEATH_CROSS')">💀 Death Cross</li>
                     
-                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Strategies</p>
-                    <li class="nav-item" data-type="STRATEGY:vesting-short-v2" onclick="loadSignalView('STRATEGY:vesting-short-v2')">🧠 Unlock Strategy <span class="badge-new">NEW</span></li>
-                    <li class="nav-item" data-type="STRATEGY:bullish-200ma-rsi" onclick="loadSignalView('STRATEGY:bullish-200ma-rsi')">📈 Bullish 200MA <span class="badge-new">NEW</span></li>
+                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Special</p>
+                    <li class="nav-item" data-type="STRATEGY_UNLOCK_SHORT" onclick="loadSignalView('STRATEGY_UNLOCK_SHORT')">🧠 Unlock Short</li>
+                    <li class="nav-item" data-type="STRATEGY_BULLISH_200MA_RSI" onclick="loadSignalView('STRATEGY_BULLISH_200MA_RSI')">📈 Bullish 200MA</li>
                 </ul>
             </div>
         </aside>
@@ -93,10 +93,6 @@
             
             <div id="chart-view">
                 <div style="flex-grow:1;" id="tradingview_chart_area"></div>
-                <div class="ai-chat-box">
-                    <h4 style="margin:0 0 10px 0; color:var(--text-main); font-size:13px;"><i class="fa-solid fa-robot"></i> Ask AI about this chart</h4>
-                    <div style="display:flex; gap:10px;"><input type="text" placeholder="e.g. Is this a good entry?" style="flex-grow:1; padding:10px; border-radius:6px; border:1px solid var(--border-color); background:rgba(0,0,0,0.3); color:white;"><button class="btn-create" style="padding:0 20px;">Ask</button></div>
-                </div>
             </div>
 
             <div id="signal-view">
@@ -128,12 +124,32 @@
                 </div>
 
                 <div style="border:1px solid var(--border-color); padding:15px; border-radius:8px; background:rgba(255,255,255,0.02);">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;"><h3 style="margin:0; font-size:16px;">🤖 AI Insight</h3><select id="ai-timeframe-select" onchange="onTimeframeChange()" style="background-color:#1e222d; color:white; border:1px solid #444; padding:4px; border-radius:4px; width:60px;"><option value="15m">15m</option><option value="1h">1h</option><option value="4h" selected>4h</option><option value="1d">1D</option><option value="1w">1W</option></select></div>
-                    <div style="margin-bottom:10px; font-size:13px; display:flex; justify-content:space-between;"><span style="color:var(--text-dim);">Trend:</span> <strong id="ai-trend">--</strong></div>
-                    <div style="margin-bottom:10px; font-size:13px; display:flex; justify-content:space-between;"><span style="color:var(--text-dim);">Support:</span> <strong id="ai-support">--</strong></div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                        <h3 style="margin:0; font-size:16px;">🤖 AI Forecast</h3>
+                        <select id="ai-timeframe-select" onchange="onTimeframeChange()" style="background-color:#1e222d; color:white; border:1px solid #444; padding:4px; border-radius:4px; width:60px;">
+                            <option value="15m">15m</option>
+                            <option value="1h">1h</option>
+                            <option value="4h" selected>4h</option>
+                            <option value="1d">1D</option>
+                        </select>
+                    </div>
+                    
+                    <div style="margin-bottom:10px; font-size:13px; display:flex; justify-content:space-between;">
+                        <span style="color:var(--text-dim);">Trend:</span> <strong id="ai-trend">--</strong>
+                    </div>
+                    <div style="margin-bottom:10px; font-size:13px; display:flex; justify-content:space-between;">
+                        <span style="color:var(--text-dim);">Support:</span> <strong id="ai-support">--</strong>
+                    </div>
+                    
                     <div id="ai-signal-box" style="text-align:center; padding:10px; background:#333; border-radius:4px; font-weight:bold; font-size:13px; margin-bottom:15px;">WAITING...</div>
-                    <p id="ai-reasoning" style="font-size:12px; color:var(--text-dim); line-height:1.4; margin-bottom:15px;">Select a timeframe and click Analyze.</p>
-                    <button id="analyze-btn" onclick="runAIAnalysis()" style="width:100%; padding:10px; background:#00ff88; color:black; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">✨ Analyze Chart</button>
+                    
+                    <p id="ai-reasoning" style="font-size:12px; color:var(--text-dim); line-height:1.4; margin-bottom:15px;">
+                        Uses quantitative data (TimeGPT) to predict future price action.
+                    </p>
+                    
+                    <button id="analyze-btn" onclick="runAIAnalysis()" style="width:100%; padding:10px; background:#00ff88; color:black; border:none; border-radius:4px; font-weight:bold; cursor:pointer;">
+                        ✨ Run Prediction
+                    </button>
                 </div>
             </div>
 
