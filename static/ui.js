@@ -61,6 +61,11 @@ function loadChartView(symbol, interval = null, signalType = 'NONE') {
     document.getElementById('panel-ai').style.display = 'block';
     document.getElementById('panel-alerts').style.display = 'none';
 
+    // On mobile, close sidebar when clicking a coin
+    if (window.innerWidth <= 900) {
+        document.querySelector('.sidebar').classList.remove('mobile-open');
+    }
+
     resetAIPanel();
 
     const indicators = STUDY_MAP[signalType] || [];
@@ -95,6 +100,10 @@ function loadSignalView(type = 'ALL') {
     document.getElementById('signal-view').style.display = 'flex';
     document.getElementById('panel-ai').style.display = 'none';
     document.getElementById('panel-alerts').style.display = 'block';
+
+    if (window.innerWidth <= 900) {
+        document.querySelector('.sidebar').classList.remove('mobile-open');
+    }
 
     document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
     const activeItem = document.querySelector(`.nav-item[data-type="${type}"]`);
@@ -342,7 +351,7 @@ async function refreshAlerts() {
 }
 
 // =========================================================
-// 5. AI & UTILS (UPDATED timeAgo FUNCTION)
+// 5. AI & UTILS
 // =========================================================
 
 function resetAIPanel() {
@@ -380,7 +389,6 @@ async function runAIAnalysis() {
     finally { btn.innerText = "✨ Run Prediction"; btn.disabled = false; }
 }
 
-// FIX: Improved Time Ago function
 function timeAgo(dateString) {
     const diff = new Date() - new Date(dateString);
     const minutes = Math.floor(diff / 60000);
@@ -452,4 +460,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadChartView('BTCUSDT'); 
     updateTelegramUI();
     document.getElementById('watchlistInput').addEventListener('keypress', function (e) { if (e.key === 'Enter' && this.value.trim()) { addToWatchlist(this.value.toUpperCase().trim()); this.value = ''; } });
+    
+    // Sidebar Toggle for Mobile
+    const toggleBtn = document.getElementById('menuToggle');
+    if(toggleBtn) {
+        toggleBtn.addEventListener('click', function() {
+            document.querySelector('.sidebar').classList.toggle('mobile-open');
+        });
+    }
 });

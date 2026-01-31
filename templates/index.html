@@ -4,30 +4,95 @@
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-9CPXYVDD5E"></script>
     <script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','G-9CPXYVDD5E');</script>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Alert DCX | Pro Terminal</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        /* LAYOUT */
-        body { margin:0; overflow:hidden; height:100vh; display:flex; flex-direction:column; background:var(--bg-main); }
-        #main-wrapper { display:grid; grid-template-columns:240px 1fr 320px; height:calc(100vh - 60px); width:100vw; overflow:hidden; }
+        /* --- GLOBAL VARIABLES --- */
+        :root {
+            --bg-main: #0b0e11;
+            --bg-card: #151920;
+            --border-color: #2a2e39;
+            --text-main: #e1e3eb;
+            --text-dim: #848e9c;
+            --accent-green: #00ff88;
+            --accent-blue: #0088cc;
+        }
+
+        /* --- LAYOUT DEFAULTS (DESKTOP) --- */
+        body { margin:0; overflow:hidden; height:100vh; display:flex; flex-direction:column; background:var(--bg-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif; color: var(--text-main); }
+        
+        #main-wrapper { 
+            display:grid; 
+            grid-template-columns:240px 1fr 320px; 
+            height:calc(100vh - 60px); 
+            width:100vw; 
+            overflow:hidden; 
+            position: relative;
+        }
         
         /* COLUMNS */
-        .sidebar { background:var(--bg-card); border-right:1px solid var(--border-color); display:flex; flex-direction:column; z-index:10; }
+        .sidebar { background:var(--bg-card); border-right:1px solid var(--border-color); display:flex; flex-direction:column; z-index:20; transition: transform 0.3s ease; }
         .center-column { background:#131722; display:flex; flex-direction:column; position:relative; overflow:hidden; min-width:0; }
-        .right-sidebar { background:var(--bg-card); border-left:1px solid var(--border-color); display:flex; flex-direction:column; padding:20px; overflow-y:auto; width:320px; }
+        .right-sidebar { background:var(--bg-card); border-left:1px solid var(--border-color); display:flex; flex-direction:column; padding:20px; overflow-y:auto; width:320px; z-index: 10; }
 
         /* VIEWS */
         #chart-view { height:100%; display:flex; flex-direction:column; }
         #signal-view { height:100%; display:none; flex-direction:column; background:var(--bg-main); padding:20px; overflow-y:auto; }
         
-        /* RIGHT PANELS (Toggleable) */
-        #panel-ai { display: block; }      /* Default: Visible */
-        #panel-alerts { display: none; }   /* Default: Hidden */
+        /* HEADER */
+        .top-nav { height:60px; display:flex; align-items:center; padding:0 20px; background:var(--bg-card); border-bottom:1px solid var(--border-color); z-index: 30; }
+        .menu-hamburger { background:none; border:none; color:var(--text-main); font-size:20px; cursor:pointer; display:none; } /* Hidden on desktop */
 
-        /* COMPONENTS */
+        /* --- MOBILE RESPONSIVENESS --- */
+        @media (max-width: 900px) {
+            /* 1. Stack Layout Logic */
+            #main-wrapper {
+                display: flex;
+                flex-direction: column;
+                height: calc(100vh - 60px);
+                overflow-y: auto; /* Allow scrolling entire page if needed */
+            }
+
+            /* 2. Left Sidebar (Off-Canvas Menu) */
+            .sidebar {
+                position: fixed;
+                top: 60px;
+                left: 0;
+                bottom: 0;
+                width: 250px;
+                transform: translateX(-100%); /* Hidden by default */
+                box-shadow: 2px 0 10px rgba(0,0,0,0.5);
+            }
+            .sidebar.mobile-open {
+                transform: translateX(0); /* Slide in */
+            }
+
+            /* 3. Center Column (Chart) */
+            .center-column {
+                height: 60vh; /* Chart takes top 60% */
+                min-height: 400px;
+                flex-shrink: 0;
+            }
+
+            /* 4. Right Sidebar (AI Panel) - Moves to Bottom */
+            .right-sidebar {
+                width: 100%;
+                height: auto;
+                border-left: none;
+                border-top: 1px solid var(--border-color);
+                flex-grow: 1; /* Takes remaining space */
+            }
+
+            /* 5. Header Adjustments */
+            .menu-hamburger { display: block; } /* Show hamburger */
+            .brand { font-size: 1.1rem; }
+            .btn-create { font-size: 11px !important; padding: 6px 10px !important; }
+        }
+
+        /* UTILS */
         .sidebar-tabs { display:flex; border-bottom:1px solid var(--border-color); }
         .tab-btn { flex:1; padding:15px; background:transparent; border:none; color:var(--text-dim); cursor:pointer; font-weight:600; }
         .tab-btn.active { color:var(--accent-blue); border-bottom:2px solid var(--accent-blue); background:rgba(0,136,204,0.05); }
@@ -37,23 +102,40 @@
         .watchlist-item { padding:12px 20px; border-bottom:1px solid rgba(255,255,255,0.05); cursor:pointer; display:flex; justify-content:space-between; align-items:center; color:var(--text-main); }
         .watchlist-item:hover { background:rgba(255,255,255,0.05); border-left:3px solid var(--accent-green); }
         
-        .ai-chat-box { height:130px; border-top:1px solid var(--border-color); background:var(--bg-card); padding:15px; }
-        .badge-new { background-color:#00ff88; color:#000; font-size:9px; font-weight:bold; padding:2px 6px; border-radius:4px; margin-left:8px; vertical-align:middle; }
+        /* Modal Fix for Mobile */
+        .modal-content { width: 90% !important; max-width: 500px; margin: 10% auto !important; }
     </style>
     <script>window.BOT_USERNAME="{{ bot_username }}";</script>
 </head>
 <body>
 
-    <div id="chartModal" class="modal-overlay"><div class="modal-content"><div class="modal-header"><h3 id="modalTitle">Create Alert</h3><button onclick="closeModal()" class="btn-close">✕</button></div><div id="tv_chart_container"></div></div></div>
+    <div id="chartModal" class="modal-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:1000; overflow-y:auto;">
+        <div class="modal-content" style="background:var(--bg-card); border-radius:8px; margin:50px auto; position:relative; border:1px solid var(--border-color);">
+            <div class="modal-header" style="padding:15px; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
+                <h3 id="modalTitle" style="margin:0; color:white;">Create Alert</h3>
+                <button onclick="closeModal()" style="background:none; border:none; color:white; font-size:18px; cursor:pointer;">✕</button>
+            </div>
+            <div id="tv_chart_container"></div>
+        </div>
+    </div>
+    
     <audio id="alertSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.m4a" preload="auto"></audio>
 
-    <header class="top-nav" style="height:60px; display:flex; align-items:center; padding:0 20px; background:var(--bg-card); border-bottom:1px solid var(--border-color);">
-        <button id="menuToggle" class="menu-hamburger" style="margin-right:15px;"><span></span><span></span><span></span></button>
-        <div class="brand" onclick="showDashboard()" style="cursor:pointer; font-size:1.3rem; font-weight:900; color:var(--text-main);">Alert <span style="color:var(--accent-green);">DCX</span></div>
+    <header class="top-nav">
+        <button id="menuToggle" class="menu-hamburger" style="margin-right:15px; color: white;">
+            <i class="fa-solid fa-bars"></i>
+        </button>
+        
+        <div class="brand" onclick="showDashboard()" style="cursor:pointer; font-size:1.3rem; font-weight:900; color:var(--text-main);">
+            Alert <span style="color:var(--accent-green);">DCX</span>
+        </div>
+        
         <div style="flex-grow:1;"></div>
+        
         <div class="nav-actions" style="display:flex; align-items:center; gap:15px;">
-            <button onclick="openCreateAlertModal()" class="btn-create" style="padding:6px 15px; font-size:13px; display:flex; align-items:center; gap:6px;">🔔 Bulk Alerts</button>
-            <button id="themeToggle" class="btn-alerts" style="background:none; border:none; font-size:18px; cursor:pointer;">🌓</button>
+            <button onclick="openCreateAlertModal()" class="btn-create" style="background:var(--accent-green); color:black; border:none; border-radius:4px; font-weight:bold; cursor:pointer; padding:6px 15px; font-size:13px; display:flex; align-items:center; gap:6px;">
+                🔔 <span class="hide-mobile">Bulk Alerts</span>
+            </button>
             <span id="authStatusLink"></span>
         </div>
     </header>
@@ -67,46 +149,47 @@
             </div>
 
             <div id="tab-watchlist" class="tab-content active">
-                <div style="padding:15px; border-bottom:1px solid var(--border-color);"><input type="text" id="watchlistInput" placeholder="+ Add Coin" style="width:100%; padding:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:white; border-radius:6px;"></div>
+                <div style="padding:15px; border-bottom:1px solid var(--border-color);">
+                    <input type="text" id="watchlistInput" placeholder="+ Add Coin (e.g. PEPE)" style="width:100%; padding:10px; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:white; border-radius:6px; box-sizing: border-box;">
+                </div>
                 <div id="userWatchlist"></div>
             </div>
 
             <div id="tab-signals" class="tab-content">
-                <ul id="signalFilters" class="sidebar-nav">
-                    <li class="nav-item active" data-type="ALL" onclick="loadSignalView('ALL')">🌍 All Signals</li>
+                <ul id="signalFilters" class="sidebar-nav" style="list-style:none; padding:0; margin:0;">
+                    <li class="nav-item active" data-type="ALL" onclick="loadSignalView('ALL')" style="padding:12px 20px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);">🌍 All Signals</li>
                     
-                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Supertrend Strategy</p>
-                    <li class="nav-item" data-type="SUPERTREND_BUY" onclick="loadSignalView('SUPERTREND_BUY')">🚀 Supertrend Buy</li>
+                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold; margin:0; background:rgba(0,0,0,0.2);">Supertrend Strategy</p>
+                    <li class="nav-item" data-type="SUPERTREND_BUY" onclick="loadSignalView('SUPERTREND_BUY')" style="padding:12px 20px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);">🚀 Supertrend Buy</li>
                     
-                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Trend</p>
-                    <li class="nav-item" data-type="GOLDEN_CROSS" onclick="loadSignalView('GOLDEN_CROSS')">🟡 Golden Cross</li>
-                    <li class="nav-item" data-type="DEATH_CROSS" onclick="loadSignalView('DEATH_CROSS')">💀 Death Cross</li>
+                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold; margin:0; background:rgba(0,0,0,0.2);">Trend</p>
+                    <li class="nav-item" data-type="GOLDEN_CROSS" onclick="loadSignalView('GOLDEN_CROSS')" style="padding:12px 20px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);">🟡 Golden Cross</li>
+                    <li class="nav-item" data-type="DEATH_CROSS" onclick="loadSignalView('DEATH_CROSS')" style="padding:12px 20px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);">💀 Death Cross</li>
                     
-                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold;">Special</p>
-                    <li class="nav-item" data-type="STRATEGY_UNLOCK_SHORT" onclick="loadSignalView('STRATEGY_UNLOCK_SHORT')">🧠 Unlock Short</li>
-                    <li class="nav-item" data-type="STRATEGY_BULLISH_200MA_RSI" onclick="loadSignalView('STRATEGY_BULLISH_200MA_RSI')">📈 Bullish 200MA</li>
+                    <p class="menu-label" style="padding:10px 15px; color:var(--accent-blue); font-size:11px; font-weight:bold; margin:0; background:rgba(0,0,0,0.2);">Special</p>
+                    <li class="nav-item" data-type="STRATEGY_UNLOCK_SHORT" onclick="loadSignalView('STRATEGY_UNLOCK_SHORT')" style="padding:12px 20px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);">🧠 Unlock Short</li>
+                    <li class="nav-item" data-type="STRATEGY_BULLISH_200MA_RSI" onclick="loadSignalView('STRATEGY_BULLISH_200MA_RSI')" style="padding:12px 20px; cursor:pointer; border-bottom:1px solid rgba(255,255,255,0.05);">📈 Bullish 200MA</li>
                 </ul>
             </div>
         </aside>
 
         <main class="center-column">
-            
             <div id="chart-view">
-                <div style="flex-grow:1;" id="tradingview_chart_area"></div>
+                <div style="flex-grow:1; width: 100%;" id="tradingview_chart_area"></div>
             </div>
 
             <div id="signal-view">
-                <div id="tickerBar" class="ticker-container" style="border-bottom:1px solid var(--border-color); margin-bottom:20px;"></div>
+                <div id="tickerBar" class="ticker-container" style="border-bottom:1px solid var(--border-color); margin-bottom:20px; white-space: nowrap; overflow-x: auto; padding: 10px 0;"></div>
                 
                 <div class="section-header" style="margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
-                    <div><h2 id="currentCategoryTitle" style="margin:0;">Live Market Signals</h2><p id="categoryDescription" style="color:var(--text-dim); font-size:13px; margin-top:5px;">Monitoring high-probability setups.</p></div>
+                    <div><h2 id="currentCategoryTitle" style="margin:0; font-size: 1.2rem;">Live Market Signals</h2><p id="categoryDescription" style="color:var(--text-dim); font-size:13px; margin-top:5px;">Monitoring high-probability setups.</p></div>
                     <span class="update-tag" style="font-size:11px; background:rgba(0,255,136,0.1); color:var(--accent-green); padding:5px 10px; border-radius:12px; border:1px solid var(--accent-green);">⚡ Live</span>
                 </div>
                 
                 <div id="strategiesContainer" style="display: none;"></div> 
 
-                <div id="mainTableContainer" class="table-container">
-                    <table id="marketScansTable" style="width:100%; border-collapse:collapse; font-size:14px;">
+                <div id="mainTableContainer" class="table-container" style="overflow-x: auto;">
+                    <table id="marketScansTable" style="width:100%; border-collapse:collapse; font-size:14px; min-width: 400px;">
                         <thead><tr style="text-align:left; color:var(--text-dim); border-bottom:1px solid var(--border-color);"><th style="padding:12px;">Asset</th><th>TF</th><th>Signal Type</th><th>Age</th></tr></thead>
                         <tbody id="marketScansList"><tr><td colspan="4" style="text-align:center; padding:50px;">Initializing...</td></tr></tbody>
                     </table>
@@ -115,7 +198,6 @@
         </main>
 
         <aside class="right-sidebar">
-            
             <div id="panel-ai">
                 <div style="background:rgba(0,136,204,0.1); border:1px solid #0088cc; padding:15px; border-radius:8px; margin-bottom:20px;">
                     <h4 style="margin:0 0 5px 0; color:#0088cc;"><i class="fa-brands fa-telegram"></i> Telegram Alerts</h4>
@@ -159,7 +241,6 @@
                     <p style="color:var(--text-dim); font-size:13px;">No active alerts found.</p>
                 </div>
             </div>
-
         </aside>
     </div>
 
